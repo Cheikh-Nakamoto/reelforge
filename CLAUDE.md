@@ -82,7 +82,9 @@ work/<project>/NN-step/ outputs and manifest.json (cache key) of each step — g
 - `npm run typecheck && npm test` before calling anything done; render a short fixture
   (`scripts/make-fixture.sh`) after touching `html.ts`, `matte.ts`, `audio.ts` or `render.ts`, and **look** at the
   contact sheet and at a full-resolution frame of a behind-word (crop the head).
-- Bump a step's `version` in its `cached(...)` call when its output format or logic changes, or stale caches win.
+- Cache keys: cut, compose, audio and render hash their own source (`codeOf`), so editing them re-runs them. The
+  model steps (ingest, transcribe, matte) do not, on purpose (tens of minutes): bump their `version` by hand when
+  their output changes. Matte windows are keyed on the cut video they came from.
 - Code comments explain why, not what. Keep functions in `cutplan.ts`, `beats.ts` and `html.ts` pure.
 - Every new dependency or model: check its licence fits noncommercial redistribution and add it to
   `THIRD_PARTY.md`. No GPL code linked in-process; no CC BY-NC weights.

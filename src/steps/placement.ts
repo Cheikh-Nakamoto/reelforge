@@ -8,7 +8,8 @@ export interface Mask {
 }
 
 export interface Placement {
-  /** Centre y and font size of the word, in composition pixels. */
+  /** Centre of the word and its font size, in composition pixels. */
+  cx: number;
   cy: number;
   fs: number;
   /** Share of the word's box hidden by the subject (mean over the sampled frames), and the worst frame. */
@@ -42,10 +43,15 @@ export interface PlaceInput {
  * many letters are lost (more than 60 % hidden) on the worst frame. Area alone misleads: 40 % hidden on one side
  * takes the end of the word with it.
  */
-export function coverage(p: PlaceInput, cy: number, fs: number): { mean: number; worst: number; lost: number; lostRun: number } {
+export function coverage(
+  p: PlaceInput,
+  cy: number,
+  fs: number,
+  cx = p.W / 2,
+): { mean: number; worst: number; lost: number; lostRun: number } {
   const width = Math.min(p.W * 0.96, p.chars * p.em * fs);
   const capH = fs * 0.72;
-  const x0 = (p.W - width) / 2, y0 = cy - capH / 2;
+  const x0 = cx - width / 2, y0 = cy - capH / 2;
   const NX = Math.max(48, p.chars * 8), NY = 12;
   const per = p.masks.map((m) => {
     let hit = 0;
@@ -87,8 +93,10 @@ export function coverage(p: PlaceInput, cy: number, fs: number): { mean: number;
 }
 
 /**
- * Size and height of a behind-word chosen on the real matte: about `target` of it hidden by the subject (under
+ * Size and position of a behind-word chosen on the real matte: about `target` of it hidden by the subject (under
  * ~15 % it floats, over ~65 % it is eaten), as large as possible, clear of the captions and inside the frame.
+ * The word may slide sideways: a short word centred on a face loses its middle letters, shifted it keeps its size and
+ * the head covers one edge, the way editors place it by hand.
  */
 export function placeBehind(p: PlaceInput): Placement {
   const target = p.target ?? 0.4;
@@ -100,21 +108,27 @@ export function placeBehind(p: PlaceInput): Placement {
     if (fs < p.H * 0.08) break;
     const top = fs / 2 + margin;
     const bottom = Math.min(p.maxBottom - fs / 2, p.H - fs / 2 - margin);
-    for (let cy = top; cy <= bottom; cy += p.H * 0.015) {
-      const c = coverage(p, cy, fs);
+    const width = Math.min(p.W * 0.96, p.chars * p.em * fs);
+    const slack = Math.max(0, (p.W - width) / 2 - p.W * 0.03);
+    const xs = slack > 0 ? [0, -0.5, 0.5, -1, 1].map((f) => p.W / 2 + f * slack) : [p.W / 2];
+    for (let cy = top; cy <= bottom; cy += p.H * 0.015) for (const cx of xs) {
+      const c = coverage(p, cy, fs, cx);
       // Readable: at most one letter in four lost, and never two lost letters side by side ("BUD__T" does not read).
       const maxLost = Math.max(1, Math.floor(p.chars / 4));
       const readable = c.lost <= maxLost && c.lostRun <= 1;
       const ok = readable && c.mean >= 0.15 && c.mean <= 0.58 && c.worst <= 0.68;
       // Readability first, then distance to the target share, then prefer the larger word.
-      const cost = (readable ? 0 : 2 + c.lost) + Math.abs(c.mean - target) + (c.worst > 0.68 ? 1 : 0) + k * 0.02;
+      // Size matters: a word shrunk to dodge the head loses the effect (0.06 per 10 % smaller), and a centred word
+      // is preferred when everything else is equal.
+      const cost = (readable ? 0 : 2 + c.lost) + Math.abs(c.mean - target) + (c.worst > 0.68 ? 1 : 0) + k * 0.06 +
+        Math.abs(cx - p.W / 2) / p.W * 0.05;
       if (cost < bestCost) {
         bestCost = cost;
-        best = { cy: Math.round(cy), fs: Math.round(fs), coverage: round(c.mean), worst: round(c.worst), lostLetters: c.lost, ok };
+        best = { cx: Math.round(cx), cy: Math.round(cy), fs: Math.round(fs), coverage: round(c.mean), worst: round(c.worst), lostLetters: c.lost, ok };
       }
     }
   }
-  return best ?? { cy: Math.round(p.H * 0.3), fs: Math.round(p.fsMax), coverage: 0, worst: 0, lostLetters: 0, ok: false };
+  return best ?? { cx: Math.round(p.W / 2), cy: Math.round(p.H * 0.3), fs: Math.round(p.fsMax), coverage: 0, worst: 0, lostLetters: 0, ok: false };
 }
 
 const round = (x: number) => Math.round(x * 100) / 100;

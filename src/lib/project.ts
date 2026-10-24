@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Repo root (one level above src/ or dist/). */
 export const ROOT = resolve(new URL("../..", import.meta.url).pathname);
@@ -67,6 +68,22 @@ function fileFingerprint(file: string): string {
   return createHash("sha1").update(readFileSync(file)).digest("hex");
 }
 
+/**
+ * Source files of a step, for its cache key: `import.meta.url` of the step plus sibling modules it depends on
+ * ("./cutplan.js"). Works from dist/ (.js) and from tsx (.ts). Editing a step's code re-runs that step, and only it.
+ * Used by the editing steps (cut, compose, audio, render), which take minutes. The model steps (ingest, transcribe,
+ * matte) take tens of minutes and keep an explicit `version` instead: bump it when their output changes.
+ */
+export function codeOf(moduleUrl: string, ...siblings: string[]): string[] {
+  return [moduleUrl, ...siblings.map((s) => new URL(s, moduleUrl).href)].map((u) => {
+    const path = fileURLToPath(u);
+    if (existsSync(path)) return path;
+    const ts = path.replace(/\.js$/, ".ts");
+    if (existsSync(ts)) return ts;
+    throw new Error(`codeOf: ${path} not found`);
+  });
+}
+
 export interface StepManifest {
   step: StepName;
   key: string;
@@ -83,11 +100,16 @@ export interface StepManifest {
 export async function cached<T>(
   project: Project,
   step: StepName,
-  opts: { inputs: string[]; params: unknown; version: number; outputs: string[]; force?: boolean },
+  opts: { inputs: string[]; params: unknown; version: number; outputs: string[]; force?: boolean; code?: string[] },
   fn: () => Promise<T>,
 ): Promise<{ cached: boolean; manifest: StepManifest }> {
   const key = createHash("sha1")
-    .update(JSON.stringify({ v: opts.version, p: opts.params, i: opts.inputs.map(fileFingerprint) }))
+    .update(JSON.stringify({
+      v: opts.version,
+      p: opts.params,
+      i: opts.inputs.map(fileFingerprint),
+      c: (opts.code ?? []).map((f) => createHash("sha1").update(readFileSync(f)).digest("hex")),
+    }))
     .digest("hex");
   const mf = project.path(step, "manifest.json");
   if (!opts.force && existsSync(mf)) {

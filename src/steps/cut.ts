@@ -1,7 +1,7 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { run } from "../lib/exec.js";
 import { silencedetect } from "../lib/ffmpeg.js";
-import { cached, invalidateFrom, Project, readJson, writeJson } from "../lib/project.js";
+import { cached, invalidateFrom, Project, readJson, writeJson, codeOf } from "../lib/project.js";
 import type { Style } from "../lib/style.js";
 import type { Word } from "../lib/words.js";
 import type { IngestResult } from "./ingest.js";
@@ -58,6 +58,7 @@ export async function applyCut(project: Project, opts: { force?: boolean } = {})
   const segs = plan.keep.map((s) => ({ start: snap(s.start), end: snap(s.end) })).filter((s) => s.end > s.start);
 
   const res = await cached(project, "cut", {
+    code: codeOf(import.meta.url, "./cutplan.js"),
     // The plan file itself is not an input: applying rewrites its `approved` flag. Its segments are the key.
     inputs: [src],
     params: { segs, v: plan.version },

@@ -123,7 +123,7 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
     const fsMax = Math.min(style.behind.size * H, (W * 0.94) / Math.max(1, text.length * em));
     // Bottom of the word stays clear of the caption zone (check: content_overlap).
     const maxBottom = (style.captions.enabled && !style.behind.hideCaptions ? capTop : H) - H * 0.03;
-    let fs: number, cy: number;
+    let fs: number, cy: number, cx = W / 2;
     const samples = masks?.[b.id];
     if (samples?.length) {
       // Measured: the share of the word the subject hides, on the cutout's own alpha at this moment.
@@ -132,7 +132,7 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
         em, chars: text.length, fsMax, maxBottom, target: style.behind.coverage,
       });
       placements[b.id] = p;
-      ({ fs, cy } = p);
+      ({ fs, cy, cx } = p);
     } else {
       // Estimated from the 1 fps survey: just under the top of the head.
       const at = nearestBox(matte, b.start);
@@ -160,7 +160,7 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
     }
     t(`tl.to("#${id} .w", { opacity: 0, duration: 0.22, ease: "power2.in" }, ${r3(b.end - 0.22)});`);
     return `    <div id="${id}" class="clip behind" data-start="${r3(b.start)}" data-duration="${dur}" data-track-index="2" data-layout-allow-overflow style="z-index:2">
-      <div class="w" style="top:${Math.round(cy - fs / 2)}px;font-size:${Math.round(fs)}px;line-height:${Math.round(fs)}px${anim === "track" ? ";opacity:0" : ""}">${
+      <div class="w" style="top:${Math.round(cy - fs / 2)}px;left:${Math.round(cx - W / 2)}px;font-size:${Math.round(fs)}px;line-height:${Math.round(fs)}px${anim === "track" ? ";opacity:0" : ""}">${
         anim === "track" ? [...text].map((ch, k) => `<span class="l${k}" style="display:inline-block">${esc(ch)}</span>`).join("") : esc(text)
       }</div>
     </div>`;

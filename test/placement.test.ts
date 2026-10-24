@@ -51,3 +51,9 @@ test("a placement that hides the end of the word is not readable", () => {
   const eaten = coverage({ ...base, masks: [{ w, h, data }] }, 1000, 300);
   assert.ok(eaten.lost >= 3, "the body region really hides half the word");
 });
+
+test("a short word slides sideways instead of shrinking behind a centred head", () => {
+  const p = placeBehind({ ...base, chars: 4, em: 0.72, fsMax: 350 });
+  assert.ok(p.ok, JSON.stringify(p));
+  assert.ok(p.fs >= 0.8 * 350, `kept its size: ${p.fs}`);
+});

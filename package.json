@@ -16,7 +16,8 @@
     "typecheck": "tsc -p . --noEmit",
     "schema": "tsx scripts/style-schema.ts",
     "fixture": "scripts/make-fixture.sh",
-    "prepare": "tsc -p ."
+    "prepare": "tsc -p .",
+    "e2e": "npm run build && tsx scripts/mcp-e2e.ts"
   },
   "engines": {
     "node": ">=22"

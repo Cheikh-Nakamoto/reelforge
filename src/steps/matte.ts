@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { hyperframes, run } from "../lib/exec.js";
 import { ffprobe, runBinary } from "../lib/ffmpeg.js";
@@ -144,7 +144,13 @@ export async function matteWindow(project: Project, start: number, end: number):
   mkdirSync(dir, { recursive: true });
   const key = `${s.toFixed(3)}-${e.toFixed(3)}`;
   const meta = join(dir, `${key}.json`);
-  if (existsSync(meta)) return readJson<MatteWindow>(meta);
+  // A window is only valid for the cut it was matted from: a new cut plan moves different frames to these times.
+  const st = statSync(src);
+  const source = `${st.size}:${st.mtimeMs}`;
+  if (existsSync(meta)) {
+    const prev = readJson<MatteWindow & { source?: string }>(meta);
+    if (prev.source === source) return prev;
+  }
 
   const t0 = Date.now();
   const clip = join(dir, `${key}.mp4`);
@@ -166,7 +172,7 @@ export async function matteWindow(project: Project, start: number, end: number):
     meanOscillation: a.meanOscillation,
     seconds: Math.round((Date.now() - t0) / 100) / 10,
   };
-  writeJson(meta, win);
+  writeJson(meta, { ...win, source });
   return win;
 }
 
@@ -214,7 +220,8 @@ export async function assembleSubject(project: Project, windows: MatteWindow[]):
   const out = project.path("matte", "subject.webm");
   const usable = windows.filter((w) => w.verdict === "ok").sort((a, b) => a.start - b.start);
   const sig = project.path("matte", "subject.json");
-  const key = usable.map((w) => `${w.start}-${w.end}`).join(",");
+  // Times and the window files themselves: a re-matted window (new cut) must rebuild the assembly.
+  const key = usable.map((w) => `${w.start}-${w.end}@${statSync(w.file).mtimeMs}`).join(",");
   if (!usable.length) return null;
   if (existsSync(out) && existsSync(sig) && readJson<{ key: string }>(sig).key === key) return out;
 

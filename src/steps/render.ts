@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { hyperframes, run } from "../lib/exec.js";
-import { cached, Project, readJson, ROOT, STEPS, writeJson, type StepManifest } from "../lib/project.js";
+import { cached, Project, readJson, ROOT, STEPS, writeJson, type StepManifest, codeOf } from "../lib/project.js";
 import { STYLES_DIR } from "../lib/style.js";
 import type { Format } from "./html.js";
 
@@ -35,6 +35,7 @@ export async function render(project: Project, opts: RenderOptions = {}) {
   const receiptPath = project.path("render", "receipt.json");
 
   const res = await cached(project, "render", {
+    code: codeOf(import.meta.url),
     inputs: [mix, ...sources],
     params: { formats, quality },
     version: 2,

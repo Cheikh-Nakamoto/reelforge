@@ -14,13 +14,15 @@ npm test
 If you touched `src/steps/html.ts`, `matte.ts`, `audio.ts` or `render.ts`, also render a short clip
 (`scripts/make-fixture.sh <video-of-a-person.mp4>` builds one) and look at the contact sheet in
 `work/<project>/08-qa/` and at a full-resolution frame of each behind-word. Mention what you checked in the PR.
+`npm run e2e -- rushs/test-synth.mp4` drives the whole pipeline through the MCP server, as an agent would.
 
 Read `CLAUDE.md` for the architecture decisions; it applies to humans too. In short:
 
 - every step has a deterministic default and writes an artifact an agent or a person can edit; no model calls for
   editorial decisions;
 - pure logic (`cutplan.ts`, `beats.ts`, `html.ts`) gets unit tests;
-- bump a step's cache `version` when its output changes;
+- editing steps (cut, compose, audio, render) re-run when their code changes; bump the `version` of ingest,
+  transcribe or matte by hand when their output changes;
 - new dependencies and models must allow noncommercial redistribution, and go into `THIRD_PARTY.md`
   (no GPL code linked in-process, no non-commercial or share-alike weights).
 

@@ -79,7 +79,7 @@ test("a vertical rush in 16:9 is pillar-boxed, a landscape rush in 9:16 is cropp
 test("behind-words stay above the caption zone", () => {
   const style = loadStyle("reel-dynamique");
   const html = buildHtml({ beats, style, format: FORMATS["9x16"], src: vertical, matte, hasCutout: true });
-  const word = /<div class="w" style="top:(\d+)px;font-size:(\d+)px/.exec(html)!;
+  const word = /<div class="w" style="top:(\d+)px;left:-?\d+px;font-size:(\d+)px/.exec(html)!;
   const capTop = Number(/\.cg \{[^}]*top: (\d+)px/.exec(html)![1]);
   assert.ok(Number(word[1]) + Number(word[2]) <= capTop, `word bottom ${Number(word[1]) + Number(word[2])} vs captions ${capTop}`);
 });

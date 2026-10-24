@@ -65,9 +65,9 @@ Copy one to make your own; every key is documented in `src/lib/style.ts`.
 - About 3 GB of disk for models and the render browser, downloaded once into `~/.cache/hyperframes/`:
   Parakeet TDT 0.6B v3 (640 MB), U²-Net human segmentation (168 MB), chrome-headless-shell. whisper.cpp
   large-v3-turbo (1.6 GB, built from source) only if you choose the whisper engine.
-- No GPU needed. Measured on a 4-core i5-7200U laptop without GPU, for a 30 s rush: ingest 63 s, transcription
-  23 s, cut 41 s, matte survey 53 s + ~2.5 min per behind-word, audio 10 s, render ~3 min per format. Roughly
-  15 minutes for both formats.
+- No GPU needed. Measured on a 4-core i5-7200U laptop without GPU, for a 30 s rush cut down to ~18 s: ingest
+  60 s, transcription 23 s, cut 50 s, matte survey 50 s + ~2–3 min per behind-word, audio 10 s, render
+  2–4 min per format. Roughly 12–20 minutes for both formats, depending on the style.
 
 ## Quick start
 

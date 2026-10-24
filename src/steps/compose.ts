@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hyperframes, run } from "../lib/exec.js";
 import { ffprobe, rmsEnvelope } from "../lib/ffmpeg.js";
-import { cached, invalidateFrom, Project, readJson, ROOT, writeJson } from "../lib/project.js";
+import { cached, invalidateFrom, Project, readJson, ROOT, writeJson, codeOf } from "../lib/project.js";
 import type { Style } from "../lib/style.js";
 import type { Word } from "../lib/words.js";
 import type { CutPlan } from "./cutplan.js";
@@ -99,6 +99,7 @@ export async function applyCompose(
   const dirs = formats.map((f) => join(project.stepDir("compose"), f));
 
   await cached(project, "compose", {
+    code: codeOf(import.meta.url, "./beats.js", "./html.js", "./placement.js", "./look.js"),
     inputs: [cut, beatsPath],
     params: { formats, style, check: opts.check !== false },
     version: 6,

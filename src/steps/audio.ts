@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.js";
 import { ffprobe, measureLoudness } from "../lib/ffmpeg.js";
-import { cached, Project, readJson, ROOT, writeJson } from "../lib/project.js";
+import { cached, Project, readJson, ROOT, writeJson, codeOf } from "../lib/project.js";
 import type { Style } from "../lib/style.js";
 import type { Beats } from "./beats.js";
 
@@ -89,6 +89,7 @@ export async function audio(project: Project, style: Style, opts: { force?: bool
   const music = pickMusic(style);
 
   const res = await cached(project, "audio", {
+    code: codeOf(import.meta.url),
     inputs: [cut, beatsPath, ...(music ? [music] : [])],
     params: { a: style.audio },
     version: 1,
