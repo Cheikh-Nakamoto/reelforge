@@ -1,0 +1,48 @@
+{
+  "name": "studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local MCP server + CLI turning face-cam rushes into edited videos with HyperFrames",
+  "type": "module",
+  "bin": {
+    "studio": "dist/cli.js",
+    "studio-mcp": "dist/mcp.js"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "dev": "tsx src/cli.ts",
+    "mcp": "tsx src/mcp.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc -p . --noEmit",
+    "schema": "tsx scripts/style-schema.ts",
+    "fixture": "scripts/make-fixture.sh",
+    "prepare": "tsc -p ."
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "gsap": "3.15.0",
+    "hyperframes": "0.8.188",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "cheikh-nakamoto",
+  "files": [
+    "dist",
+    "styles",
+    "templates",
+    "skills",
+    "LICENSE",
+    "COMMERCIAL.md",
+    "THIRD_PARTY.md",
+    "README.md"
+  ]
+}

@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=./style.schema.json
+name: tech-explainer
+description: >-
+  Explication claire : sous-titres en boîte, panneaux et compteurs en monospace, pastilles sur les mots-clés
+  (étapes, pièges, notions), image propre et légers zooms aux coupes.
+fonts:
+  caption: Inter
+  captionWeight: 700
+  behind: Archivo Black
+  behindWeight: 400
+  graphic: JetBrains Mono
+colors:
+  text: "#ffffff"
+  accent: "#38bdf8"
+  stroke: "rgba(2,6,23,0.6)"
+  behind: "#e2e8f0"
+  panel: "rgba(15,23,42,0.86)"
+rhythm:
+  minPause: 0.4
+  keep: 0.12
+captions:
+  maxWords: 5
+  animation: pop
+  size: 52
+  box: true
+behind:
+  max: 1
+  hold: 1.8
+  minGap: 8
+  animation: rise
+  size: 0.24
+mograph:
+  minGap: 2.5
+  triggers:
+    - words: [attention, important, erreur, bug, piège, problème, danger]
+      kind: callout
+    - words: [clé, essentiel, principe, règle, concept]
+      kind: underline
+    - words: [premièrement, deuxièmement, troisièmement, ensuite, enfin, étape]
+      kind: list
+    - words: [gratuit, local, rapide, simple, automatique, sécurisé]
+      kind: badge
+motion:
+  punchIn: 1.03
+  jumpZoom: 1.05
+  ease: power3.out
+look:
+  grade: clean-studio
+  gradeIntensity: 0.6
+audio:
+  musicDb: -24
+  duckDb: 10
+  sfxDb: -16

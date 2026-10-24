@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=./style.schema.json
+name: cinematic
+description: >-
+  Rythme posé, sous-titres serif qui montent mot à mot, un seul mot derrière le sujet en capitales espacées,
+  étalonnage contrasté, grain et bandes 2.39 en 16:9.
+fonts:
+  caption: Playfair Display
+  captionWeight: 600
+  behind: Playfair Display
+  behindWeight: 800
+  graphic: Inter
+colors:
+  text: "#f5f1e8"
+  accent: "#e8b04a"
+  stroke: "rgba(0,0,0,0.45)"
+  behind: "#f5f1e8"
+  panel: "rgba(12,12,12,0.62)"
+rhythm:
+  minPause: 0.6        # on laisse respirer : seules les vraies longues pauses sont resserrées
+  keep: 0.22
+captions:
+  maxWords: 5
+  animation: rise
+  size: 54
+  highlightActive: false
+behind:
+  max: 1
+  hold: 2.4
+  minGap: 8
+  animation: track     # les lettres se resserrent
+  size: 0.26
+mograph:
+  minGap: 6
+  triggers:
+    - words: [essentiel, vérité, secret, important, jamais, toujours]
+      kind: underline
+motion:
+  punchIn: 1.04
+  jumpZoom: 1
+  ease: power2.out
+look:
+  grade: deep-contrast
+  gradeIntensity: 0.55
+  vignette: 0.28
+  grain: 0.14
+  letterbox: 2.39
+audio:
+  musicDb: -20
+  duckDb: 12
+  sfxDb: -20

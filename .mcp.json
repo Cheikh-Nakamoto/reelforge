@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "studio": {
+      "command": "node",
+      "args": ["dist/mcp.js"]
+    }
+  }
+}

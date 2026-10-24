@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=./style.schema.json
+name: reel-dynamique
+description: >-
+  Reel nerveux : coupes serrées, zooms alternés à chaque coupe, sous-titres 2 mots en capitales au centre,
+  jusqu'à 3 mots géants derrière le sujet, couleurs vives et SFX marqués.
+fonts:
+  caption: Montserrat
+  captionWeight: 900
+  behind: League Gothic
+  behindWeight: 400
+  graphic: Archivo Black
+colors:
+  text: "#ffffff"
+  accent: "#ff2e63"
+  stroke: "rgba(0,0,0,0.85)"
+  behind: "#ffffff"
+  panel: "rgba(0,0,0,0.78)"
+rhythm:
+  minPause: 0.25       # coupe presque toutes les respirations
+  keep: 0.07
+captions:
+  maxWords: 2
+  animation: pop
+  uppercase: true
+  size: 78
+  position: mid
+behind:
+  max: 3
+  hold: 1.3
+  minGap: 3.5
+  animation: slam
+  size: 0.38
+  hideCaptions: true   # le mot géant remplace les sous-titres le temps de son apparition
+mograph:
+  minGap: 2
+  triggers:
+    - words: [attention, stop, erreur, piège, jamais]
+      kind: callout
+    - words: [gratuit, facile, rapide, simple, nouveau, secret]
+      kind: badge
+    - words: [premièrement, deuxièmement, troisièmement, ensuite, enfin]
+      kind: list
+motion:
+  punchIn: 1.1
+  jumpZoom: 1.12
+  ease: expo.out
+look:
+  grade: bright-pop
+  gradeIntensity: 0.6
+audio:
+  musicDb: -18
+  duckDb: 9
+  sfxDb: -12
