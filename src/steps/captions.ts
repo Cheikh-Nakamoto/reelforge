@@ -4,6 +4,11 @@ import type { Beats } from "./beats.js";
 
 type T = (line: string) => void;
 type Group = Beats["captions"][number];
+/**
+ * The one overshoot every caption spring shares (group pop, slammed words, key-word recoil, pill, emoji):
+ * motion-doctrine caps an entry overshoot at back.out(1.7); 2.2–3 read as rubber, not as a punch.
+ */
+const SPRING = "back.out(1.7)";
 
 /**
  * Captions as top short-form edits set them in 2025–26 (Submagic / CapCut / Opus presets, HyperFrames caption blocks):
@@ -81,17 +86,18 @@ export function buildCaptions(groups: Group[], style: Style, W: number, H: numbe
 
     // Entrance: the group springs up from the line (pop / karaoke), or each word lands when spoken (slam / rise).
     if (reveal) t(`tl.set("#${g.id} .ci", { opacity: 1 }, ${s});`);
-    else t(`tl.fromTo("#${g.id} .ci", { scale: 0.86, y: ${Math.round(fs * 0.22)}, opacity: 0 }, { scale: 1, y: 0, opacity: 1, duration: 0.16, ease: "back.out(2.2)" }, ${s});`);
+    else t(`tl.fromTo("#${g.id} .ci", { scale: 0.86, y: ${Math.round(fs * 0.22)}, opacity: 0 }, { scale: 1, y: 0, opacity: 1, duration: 0.16, ease: "${SPRING}" }, ${s});`);
 
     g.words.forEach((w, j) => {
       const id = `#${g.id}w${j}`;
       const at = r3(Math.max(g.start, w.start - 0.04));
       // The word stays marked until the next one starts: no flicker in the gaps between words.
       const until = r3(Math.min(e, g.words[j + 1]?.start ?? e));
+      // The key word is the heavy one: it travels further and twice as long (cut-the-curve §6, speed by weight).
       if (cap.animation === "slam") {
         t(j === key
-          ? `tl.fromTo("${id}", { scale: 0.3, rotation: -8, opacity: 0 }, { scale: 1, rotation: 0, opacity: 1, duration: 0.3, ease: "back.out(3)" }, ${at});`
-          : `tl.fromTo("${id}", { scale: 1.7, y: ${Math.round(-fs * 0.3)}, opacity: 0 }, { scale: 1, y: 0, opacity: 1, duration: 0.15, ease: "back.out(2.4)" }, ${at});`);
+          ? `tl.fromTo("${id}", { scale: 0.3, rotation: -8, opacity: 0 }, { scale: 1, rotation: 0, opacity: 1, duration: 0.3, ease: "${SPRING}" }, ${at});`
+          : `tl.fromTo("${id}", { scale: 1.7, y: ${Math.round(-fs * 0.3)}, opacity: 0 }, { scale: 1, y: 0, opacity: 1, duration: 0.15, ease: "${SPRING}" }, ${at});`);
       } else if (cap.animation === "rise") {
         t(j === key
           ? `tl.fromTo("${id}", { y: ${Math.round(fs * 0.5)}, scale: 0.9, opacity: 0 }, { y: 0, scale: 1, opacity: 1, duration: 0.32, ease: "power3.out" }, ${at});`
@@ -102,11 +108,11 @@ export function buildCaptions(groups: Group[], style: Style, W: number, H: numbe
       // Pop and karaoke show every word from the start: the key word punches when it is spoken instead of appearing.
       if (!reveal && j === key) {
         t(`tl.to("${id}", { scale: 1.16, duration: 0.08, ease: "power2.out" }, ${at});`);
-        t(`tl.to("${id}", { scale: 1, duration: 0.18, ease: "back.out(3)" }, ${r3(at + 0.08)});`);
+        t(`tl.to("${id}", { scale: 1, duration: 0.18, ease: "${SPRING}" }, ${r3(at + 0.08)});`);
       }
       if (!cap.highlightActive || look === "editorial" || look === "minimal") return;
       if (look === "pill") {
-        t(`tl.fromTo("#${g.id}p${j}", { scale: 0.6, rotation: -6, opacity: 0 }, { scale: 1, rotation: -2, opacity: 1, duration: 0.1, ease: "back.out(2.5)" }, ${r3(w.start)});`);
+        t(`tl.fromTo("#${g.id}p${j}", { scale: 0.6, rotation: -6, opacity: 0 }, { scale: 1, rotation: -2, opacity: 1, duration: 0.1, ease: "${SPRING}" }, ${r3(w.start)});`);
         t(`tl.set("#${g.id}p${j}", { opacity: 0 }, ${until});`);
         // On the pill the outline goes (dark type with a black outline reads as a blot).
         t(`tl.set("${id}", { color: "${pillText}", textShadow: "none", "--sk": "transparent" }, ${r3(w.start)});`);
@@ -121,7 +127,7 @@ export function buildCaptions(groups: Group[], style: Style, W: number, H: numbe
       }
     });
     if (g.emoji) {
-      t(`tl.fromTo("#${g.id}e", { scale: 0, rotation: -30, y: ${Math.round(fs * 0.3)} }, { scale: 1, rotation: ${gi % 2 ? 8 : -8}, y: 0, duration: 0.35, ease: "back.out(2.6)" }, ${r3(g.start + 0.06)});`);
+      t(`tl.fromTo("#${g.id}e", { scale: 0, rotation: -30, y: ${Math.round(fs * 0.3)} }, { scale: 1, rotation: ${gi % 2 ? 8 : -8}, y: 0, duration: 0.35, ease: "${SPRING}" }, ${r3(g.start + 0.06)});`);
     }
     // Hard cut to the next group (a short fade reads as lag at 2–3 words a group).
     t(`tl.to("#${g.id} .ci", { opacity: 0, duration: 0.05, ease: "none" }, ${r3(Math.max(g.start + 0.15, e - 0.05))});`);
@@ -131,6 +137,8 @@ export function buildCaptions(groups: Group[], style: Style, W: number, H: numbe
   // Bright footage (a light wall, a pale shirt) swallows white type without an outline; editorial gets a soft scrim
   // sized to the text instead (30–40 %, never a full-width bar).
   const outline = look === "bold" ? "0.13em" : look === "pill" ? "0.09em" : look === "minimal" ? "0.08em" : "0";
+  // The emoji rule only with an emoji: html.ts declares the font's @font-face on that condition, and a family cited
+  // without one is a hyperframes lint error (font_family_without_font_face).
   const css = `
       #captions { position: absolute; inset: 0; z-index: 7; }
       .cg { position: absolute; inset: auto; left: 0; width: ${W}px; bottom: ${H - zone.bottom}px; display: flex; justify-content: center; }
@@ -146,8 +154,8 @@ export function buildCaptions(groups: Group[], style: Style, W: number, H: numbe
       .ci::before { content: ""; position: absolute; z-index: -1; inset: -0.5em -0.9em;
         background: radial-gradient(closest-side, rgba(0,0,0,0.42), rgba(0,0,0,0)); }` : ""}
       .pl { position: absolute; z-index: -1; left: -0.14em; right: -0.14em; top: 0.02em; bottom: -0.02em; border-radius: 0.2em;
-        background: ${c.accent}; opacity: 0; box-shadow: 0 0.08em 0.25em rgba(0,0,0,0.35); }
+        background: ${c.accent}; opacity: 0; box-shadow: 0 0.08em 0.25em rgba(0,0,0,0.35); }${groups.some((g) => g.emoji) ? `
       .emo { position: absolute; left: 50%; bottom: 100%; width: 1.3em; margin-left: -0.65em; margin-bottom: 0.12em; text-align: center;
-        font-size: 1.25em; line-height: 1; font-family: "Noto Color Emoji"; -webkit-text-stroke: 0; }`;
+        font-size: 1.25em; line-height: 1; font-family: "Noto Color Emoji"; -webkit-text-stroke: 0; }` : ""}`;
   return { html, css };
 }

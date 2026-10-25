@@ -9,3 +9,7 @@ assets/sfx/*/
 assets/sfx/CREDITS.md
 assets/music/*
 !assets/music/.gitkeep
+.scratch/*
+!.scratch/tickets/
+.scratch/tickets/*
+!.scratch/tickets/loop.md

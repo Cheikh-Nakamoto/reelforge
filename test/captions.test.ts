@@ -60,3 +60,10 @@ test("a group never ends on an article or a preposition, and breaks on commas", 
   assert.deepEqual(text(groupCaptions(words("mon programme de site web"), style, 3)), ["mon programme", "de site web"]);
   assert.deepEqual(text(groupCaptions(words("Bonjour, ceci est"), style, 2)), ["Bonjour,", "ceci est"]);
 });
+
+test("the emoji font is cited only when a group carries an emoji (html.ts declares its @font-face on the same condition)", () => {
+  const plain = build("reel-dynamique", [{ id: "cap0", start: 0, end: 1, words: words("vraiment rapide") }]);
+  assert.doesNotMatch(plain.css, /Noto Color Emoji/, "hyperframes lint: font_family_without_font_face");
+  const withEmoji = build("reel-dynamique", [{ id: "cap0", start: 0, end: 1, words: words("vraiment rapide"), emoji: "🚀" }]);
+  assert.match(withEmoji.css, /\.emo \{[^}]*font-family: "Noto Color Emoji";/);
+});

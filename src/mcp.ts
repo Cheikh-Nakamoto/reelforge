@@ -6,6 +6,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import { doctor, formatChecks } from "./doctor.js";
 import { startDashboard } from "./dashboard.js";
@@ -14,8 +15,9 @@ import { analyzeReference, cachedReference, overridesFrom } from "./reference.js
 import { AssemblySchema, buildAssembly } from "./assembly.js";
 import { getJob, projectJobs, startJob, type Job } from "./jobs.js";
 import { logEvent, summarizeArgs } from "./events.js";
-import { continuePipeline, createProject, listProjects, openProject, status } from "./pipeline.js";
-import { Project, readJson } from "./lib/project.js";
+import { continuePipeline, createProject, listProjects, openProject, runQa, status, writeDefaultTickets } from "./pipeline.js";
+import { proposeTickets, setTickets, showTickets, ticketClose, ticketNext, type TicketInput } from "./tickets.js";
+import { Project, ROOT, readJson } from "./lib/project.js";
 import { listStyles } from "./lib/style.js";
 import { applyCompose, proposeCompose, setBeats } from "./steps/compose.js";
 import { applyCut, fixWords, proposeCut } from "./steps/cut.js";
@@ -23,7 +25,6 @@ import type { CutPlan } from "./steps/cutplan.js";
 import { matteSurvey } from "./steps/matte.js";
 import { audio } from "./steps/audio.js";
 import { render } from "./steps/render.js";
-import { qa } from "./steps/qa.js";
 
 const server = new McpServer({ name: "studio", version: "0.1.0" });
 
@@ -115,6 +116,7 @@ server.registerTool("studio_create_project", {
     });
     const p = await proposeCut(openProject(name).project, openProject(name).style);
     log(`[cut] plan proposé : ${p.plan.sourceDuration}s → ${p.plan.keptDuration}s`);
+    writeDefaultTickets(name);
     return { project: name, next: "studio_cut_review" };
   });
   return json({ project: name, ...jobView(job), brief: r?.prompt, next: "Poll studio_status, then studio_cut_review. Follow the brief." });
@@ -223,6 +225,52 @@ server.registerTool("studio_beats", {
   return json(readJson(project.path("compose", "beats.json")));
 }));
 
+server.registerTool("studio_tickets", {
+  description:
+    "A long edit split into tickets, one per fresh agent session (cut review per part, beats, render and QA per " +
+    "format, correction rounds after a QA with warnings). Written by default at studio_create_project / " +
+    "studio_assemble and after each QA. `propose` rewrites the default split (keeps tickets done), `show` returns the " +
+    "table and every ticket's markdown, `set` replaces every open ticket by your list (ids unique, known " +
+    "dependencies, no cycle).",
+  inputSchema: {
+    project: ProjectArg,
+    action: z.enum(["propose", "show", "set"]),
+    tickets: z.array(z.any()).optional().describe(
+      "For action=set: each ticket as its markdown (as show returns it) or { id: \"0002\", title, dependsOn?, checkpoint?, context?, done?: [criteria] }",
+    ),
+  },
+}, safe("studio_tickets", async (a) => {
+  if (a.action === "propose") proposeTickets(a.project);
+  else if (a.action === "set") {
+    if (!a.tickets) throw new Error("action=set needs tickets");
+    setTickets(a.project, a.tickets as TicketInput[]);
+  }
+  return text(showTickets(a.project));
+}));
+
+server.registerTool("studio_ticket_next", {
+  description:
+    "The next ticket of a project (open, every dependency done), whole, as markdown: give it to a fresh session. " +
+    "`checkpoint` set means a review gate: ask the user before closing it. `id: null` with the reason when nothing is ready.",
+  inputSchema: { project: ProjectArg },
+}, safe("studio_ticket_next", async (a) => json(ticketNext(a.project))));
+
+server.registerTool("studio_ticket_close", {
+  description:
+    "Close a ticket with its result (2–3 lines: what changed, what was verified, what is left), or with " +
+    "status \"ouvert\" leave it open with a « Reprise » (done so far, next step) for the next session.",
+  inputSchema: {
+    project: ProjectArg,
+    id: z.string().describe("Ticket id, e.g. 0003"),
+    result: z.string(),
+    status: z.enum(["fait", "ouvert"]).optional().describe("Default fait"),
+    reprise: z.string().optional().describe("With status ouvert: where the next session picks up (default: result)"),
+  },
+}, safe("studio_ticket_close", async (a) => {
+  const t = ticketClose(a.project, a.id, a.result, { status: a.status, reprise: a.reprise });
+  return json({ id: t.id, status: t.status, next: ticketNext(a.project) });
+}));
+
 server.registerTool("studio_assemble", {
   description:
     "Edit several rushes as ONE video. `spec`: { name, style, parts: [{ project | source, kind?: face|screen, " +
@@ -235,6 +283,7 @@ server.registerTool("studio_assemble", {
   inputSchema: { spec: z.any().describe("The assembly spec object (see description)") },
 }, safe("studio_assemble", async (a) => {
   const spec = AssemblySchema.parse(a.spec);
+  writeDefaultTickets(spec.name, spec);
   const job = startJob(spec.name, "assemble", (log) => buildAssembly(spec, { log }));
   return json(jobView(job));
 }));
@@ -353,6 +402,77 @@ server.registerPrompt("questionnaire", {
   }],
 }));
 
+// The ticket procedure has one source, skills/ticket/SKILL.md (shared with the repo's own .claude/skills/ticket);
+// the prompt serves it with studio's tools in place of the folder's files, read at each call so an edit shows at once.
+const ticketProcedure = (): string =>
+  readFileSync(join(ROOT, "skills", "ticket", "SKILL.md"), "utf8").replace(/^---\n[\s\S]*?\n---\n/, "").trim();
+
+server.registerPrompt("ticket", {
+  title: "Un ticket du projet",
+  description: "Fait un ticket d'un projet studio (le suivant, ou celui nommé) dans une session neuve.",
+  argsSchema: { project: z.string().describe("Project name"), id: z.string().optional().describe("Ticket id, e.g. 0003") },
+}, ({ project, id }) => ({
+  messages: [{
+    role: "user" as const,
+    content: {
+      type: "text" as const,
+      text: [
+        `Fais ${id ? `le ticket ${id}` : "le prochain ticket"} du projet studio « ${project} » en suivant la procédure ` +
+          "ci-dessous. Les tickets se lisent et s'écrivent par les outils de studio, jamais par leurs fichiers :",
+        `- étape 1 : \`studio_ticket_next { project: "${project}" }\` renvoie le prochain ticket entier` +
+          `${id ? ` ; pour le ticket ${id}, prends-le dans \`studio_tickets { project: "${project}", action: "show" }\`` : ""} ;`,
+        `- étape 4 : \`studio_ticket_close { project: "${project}", id, result }\` écrit le « Résultat » et met le ` +
+          "tableau à jour ; un ticket trop gros ou un checkpoint en attente : `status: \"ouvert\"` avec `reprise` ;",
+        "- un nouveau ticket : `studio_tickets show`, puis `studio_tickets set` avec tous les tickets ouverts plus le nouveau.",
+        "Termine en trois lignes exactement : livré, vérifié, reste (avec les nouveaux tickets). Une question de " +
+          "checkpoint que tu ne peux pas poser toi-même : commence par « QUESTION » et donne-la à la place des trois lignes.",
+        "",
+        ticketProcedure(),
+      ].join("\n"),
+    },
+  }],
+}));
+
+server.registerPrompt("tickets", {
+  title: "Boucle des tickets du projet",
+  description: "Pilote les tickets d'un projet studio : un sous-agent neuf par ticket, arrêt et question à chaque checkpoint.",
+  argsSchema: { project: z.string().describe("Project name") },
+}, ({ project }) => {
+  const sub = (extra: string) => `\`/mcp__studio__ticket ${project} <id>\`${extra}`;
+  return {
+    messages: [{
+      role: "user" as const,
+      content: {
+        type: "text" as const,
+        text: [
+          `Pilote les tickets du projet studio « ${project} ». Tu es la session pilote : tu ne fais aucun ticket toi-même ` +
+            "et tu ne lis ni planche contact ni plan de coupe. Chaque ticket part dans un sous-agent au contexte neuf, " +
+            "qui ne te rend que trois lignes : ta session reste petite. Un seul ticket à la fois (les rendus prennent " +
+            "tout le CPU).",
+          "",
+          "À chaque tour :",
+          `1. \`studio_ticket_next { project: "${project}" }\`. \`id: null\` : arrête la boucle et donne la raison à l'utilisateur.`,
+          `2. Ticket sans checkpoint : lance un sous-agent (type general-purpose) avec pour prompt ${sub("")} ` +
+            "(le prompt MCP `ticket`, ou son texte si le sous-agent ne voit pas les prompts). Passe ses trois lignes à " +
+            "l'utilisateur, précédées du numéro et du titre du ticket.",
+          "3. Ticket avec checkpoint (une porte de revue) : arrête la boucle sur lui.",
+          `   a. Un sous-agent prépare la porte avec ${sub("")} : il résume le plan de coupe, liste les avertissements, ` +
+            "donne le chemin de la planche QA et rend une question commençant par « QUESTION », sans fermer le ticket.",
+          "   b. Pose cette question à l'utilisateur, telle quelle, et attends sa réponse.",
+          `   c. Un second sous-agent applique la réponse et ferme le ticket : ${sub(" suivi de « Réponse de l'utilisateur : <réponse> »")}.`,
+          "   d. Reprends la boucle.",
+          "4. Le ticket n'est pas `fait` au retour (relis-le avec `studio_ticket_next` ou `studio_tickets show`), ou la " +
+            "réponse commence par « BLOQUÉ » : arrête la boucle, explique ce qui bloque, ne relance pas le même ticket.",
+          "",
+          "Sans sous-agents (ton client n'en lance pas) : dis-le à l'utilisateur et ne fais pas les tickets ici. Propose " +
+            `la forme sans tête : une session \`claude -p "/mcp__studio__ticket ${project}"\` par ticket (script de boucle, ` +
+            "ticket 0023), ou `/clear` puis ce prompt `ticket` à la main, ticket par ticket.",
+        ].join("\n"),
+      },
+    }],
+  };
+});
+
 server.registerTool("studio_step", {
   description: "Re-run one late step in the background (compose | audio | render | qa), e.g. after editing beats or a style.",
   inputSchema: { project: ProjectArg, step: z.enum(["compose", "audio", "render", "qa"]), formats: Formats, force: z.boolean().optional() },
@@ -363,7 +483,7 @@ server.registerTool("studio_step", {
     if (a.step === "compose") return applyCompose(project, style, { formats, force: a.force });
     if (a.step === "audio") return (await audio(project, style, { force: a.force })).report;
     const r = await render(project, { formats, force: a.force && a.step === "render", onProgress: (l) => l && log(l) });
-    return a.step === "qa" ? qa(project, style, r.outputs) : r.outputs;
+    return a.step === "qa" ? runQa(project, style, r.outputs) : r.outputs;
   });
   return json(jobView(job));
 }));
@@ -376,7 +496,7 @@ server.registerTool("studio_qa", {
   inputSchema: { project: ProjectArg, mattePreview: z.boolean().optional().describe("Also return the cutout preview over magenta") },
 }, safe("studio_qa", async (a) => {
   const { project } = openProject(a.project);
-  const r = readJson<Awaited<ReturnType<typeof qa>>>(project.path("qa", "qa.json"));
+  const r = readJson<Awaited<ReturnType<typeof runQa>>>(project.path("qa", "qa.json"));
   const content: Content[] = [{ type: "text", text: JSON.stringify({ files: r.files, warnings: r.warnings }, null, 2) }];
   for (const f of r.files) content.push(image(f.sheet));
   if (a.mattePreview && r.mattePreview) content.push(image(r.mattePreview));

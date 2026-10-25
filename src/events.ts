@@ -8,7 +8,7 @@ import { Project, WORK_DIR } from "./lib/project.js";
  */
 export interface StudioEvent {
   t: string;
-  kind: "tool" | "log" | "error" | "step";
+  kind: "tool" | "log" | "error" | "step" | "ticket";
   source: "mcp" | "cli" | "pipeline";
   tool?: string;
   args?: unknown;

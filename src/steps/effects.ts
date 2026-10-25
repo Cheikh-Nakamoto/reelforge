@@ -202,3 +202,26 @@ export function fxBakeFilter(fx: Pick<Fx, "kind" | "at" | "duration">[], W: numb
 }
 
 const r = (t: number) => Math.round(t * 1000) / 1000;
+
+/**
+ * Hand-edited camera effects that move the rush under a behind-word. `proposeEffects` never places a whip or a ladder
+ * there, but beats.json is editable (decision 2): a whip slides and grows `.shake`, a ladder steps its scale, so the
+ * subject slips out of the placement measured at the word's start (decision 7) and pushes against the word's pull.
+ * The composition neutralizes them (a whip keeps only its flash, a ladder is dropped) and says so.
+ */
+export function behindFxClashes(beats: Pick<Beats, "behind" | "fx">): { fx: Fx; word: Beats["behind"][number]; note: string }[] {
+  const out: { fx: Fx; word: Beats["behind"][number]; note: string }[] = [];
+  for (const f of beats.fx) {
+    if (f.kind !== "whip" && f.kind !== "ladder") continue;
+    const word = beats.behind.find((b) => f.at < b.end && f.at + f.duration > b.start);
+    if (!word) continue;
+    const done = f.kind === "whip" ? "joué en flash seul" : "ignoré";
+    out.push({
+      fx: f, word,
+      note: `Effet ${f.id} (${f.kind}, ${f.at.toFixed(2)} s) pendant le mot derrière « ${word.text} » ` +
+        `(${word.start.toFixed(2)}–${word.end.toFixed(2)} s) : ${done}, le rush glisserait sous le mot. ` +
+        `Déplace-le hors du mot ou retire-le de beats.json.`,
+    });
+  }
+  return out;
+}

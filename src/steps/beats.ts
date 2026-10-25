@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Style } from "../lib/style.js";
 import { endsClause, norm, numericValue, STOPWORDS, type Word } from "../lib/words.js";
 import { addEmojis, contextualGraphics, emphasize, pickScenes } from "./contextual.js";
-import { fxSound, proposeEffects } from "./effects.js";
+import { behindFxClashes, fxSound, proposeEffects } from "./effects.js";
 import type { MatteReport } from "./matte.js";
 
 const WordZ = z.object({ id: z.string(), text: z.string(), start: z.number(), end: z.number() });
@@ -367,5 +367,11 @@ export function beatsSummary(b: Beats): string {
   for (const f of b.fx) lines.push(`  fx ${f.kind.padEnd(9)} ${f.at.toFixed(2)}–${(f.at + f.duration).toFixed(2)}  ${f.reason ?? ""}`);
   for (const m of b.mographs) lines.push(`  ${m.kind.padEnd(9)} ${m.start.toFixed(2)}–${m.end.toFixed(2)}  « ${m.text} »${m.label ? ` / ${m.label}` : ""}`);
   for (const n of b.notes) lines.push(`  ⚠ ${n}`);
+  // Told at review, not only in QA: a hand-edited camera effect under a behind-word is neutralized at composition.
+  for (const c of behindFxClashes(b)) lines.push(`  ⚠ ${c.note}`);
+  for (const w of b.behind) {
+    const fr = b.frames.find((f) => w.start < f.end && w.end > f.start);
+    if (fr) lines.push(`  ⚠ Mot derrière « ${w.text} » dans la réduction de cadre ${fr.id} : il sera retiré à la composition (décision 9).`);
+  }
   return lines.join("\n");
 }

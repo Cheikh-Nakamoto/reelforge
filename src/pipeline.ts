@@ -13,6 +13,8 @@ import { qa } from "./steps/qa.js";
 import { render } from "./steps/render.js";
 import { audio } from "./steps/audio.js";
 import { transcribe, type Engine } from "./steps/transcribe.js";
+import { ensureTickets, recordQa } from "./tickets.js";
+import type { Assembly } from "./assembly.js";
 
 export type Log = (msg: string) => void;
 
@@ -126,9 +128,26 @@ export async function continuePipeline(project: Project, style: Style, opts: Run
   log(`[audio] ${au.cached ? "cache" : `${au.manifest.seconds}s`} — ${au.report.final.integrated} LUFS, TP ${au.report.final.truePeak}`);
   const rn = await render(project, { formats, quality: opts.quality, onProgress: (l) => l && log(`[render] ${l}`) });
   log(`[render] ${rn.cached ? "cache" : `${rn.manifest.seconds}s`}`);
-  const report = await qa(project, style, rn.outputs);
+  const report = await runQa(project, style, rn.outputs);
   for (const w of report.warnings) log(`[qa] ⚠ ${w}`);
   return { status: "done", project: project.name, outputs: rn.outputs, qa: report };
+}
+
+/**
+ * A project's default tickets (decision 22), unless it has some: at creation, and for an assembly as soon as its spec
+ * is known, before its project exists (the parts' cut reviews come first).
+ */
+export function writeDefaultTickets(name: string, spec?: Assembly) {
+  if (!spec) return ensureTickets(name);
+  const parts = spec.parts.map((p) => p.name ?? p.project ?? Project.nameFromSource(p.source!));
+  return ensureTickets(name, { name, style: spec.style, assembly: true }, parts);
+}
+
+/** QA, then the correction round its warnings ask for in the project's tickets. */
+export async function runQa(project: Project, style: Style, outputs: Record<string, string>) {
+  const report = await qa(project, style, outputs);
+  recordQa(project.name, Object.keys(outputs), report.warnings);
+  return report;
 }
 
 export function status(project: Project) {

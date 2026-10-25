@@ -9,6 +9,14 @@ every frame runs on your machine.
 > hésitations et prises ratées, sous-titres animés, mots derrière le sujet, motion graphics déclenchés par la
 > parole, sound design, exports 16:9 et 9:16. Piloté par un agent (Claude Code, Cursor…) via MCP, ou en CLI.
 > Licence **non commerciale** : tout usage commercial passe par l'auteur, voir [COMMERCIAL.md](COMMERCIAL.md).
+>
+> 📖 **Documentation complète (en français)** : [docs/](docs/README.md). Elle couvre l'installation, la
+> connexion à Claude Code, Codex, Antigravity, Cursor, VS Code et à tout autre client MCP, un premier montage pas
+> à pas, chaque étape du pipeline, les styles, les recettes, le dépannage et la référence complète.
+
+**Full documentation** (French): [docs/](docs/README.md), covering installation, MCP client setup (Claude Code,
+Codex, Antigravity, Cursor, VS Code…), a first edit step by step, every pipeline step, styles, troubleshooting and
+the full reference.
 
 ```
 rush.mp4 ─▶ ingest ─▶ transcribe ─▶ cut ──▶ matte ─▶ compose ─▶ audio ─▶ render ─▶ qa

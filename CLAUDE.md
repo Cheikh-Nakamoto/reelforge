@@ -121,6 +121,17 @@ films/<name>/           hand-made films with no rush (music only): setup, storyb
 21. **Quality over render time** (the maintainer's call, 2026-10-25). Long renders are accepted: an effect is never
    dropped or simplified to save CPU time, and decisions 8, 10, 14 and 20 stand only on their other reasons. Motion
    follows the HyperFrames skills (see Skills).
+22. **A long edit runs as tickets** (the maintainer's call, 2026-10-25). One agent session that edits a whole video
+   (cut review, beats, render, QA, correction rounds, second format) outgrows ~140 k tokens: the
+   `video-intro-funk-v2` session did. Studio splits a project's work into tickets (`work/<project>/tickets/`, the
+   format of `.scratch/tickets/`, so one `ticket` skill reads both): a deterministic default, one ticket per step and
+   per part of an assembly, written at creation and after each QA, which the agent reviews through `studio_tickets`
+   propose/show/set (decision 2). `studio_ticket_next`, `studio_ticket_close` and the MCP prompts hide the tree, and
+   every call is journaled (decision 12). Tickets run only in a loop, because Claude Code cannot clear a context on
+   its own (hooks cannot run `/clear`; `/loop` stays one conversation): a driver session runs each ticket in a fresh
+   subagent and grows by one summary per ticket, and `claude -p` per ticket is the headless form. A review gate is a
+   checkpoint ticket: a subagent prepares it, the driver asks the user and waits (subagents cannot ask), a second
+   subagent applies the answer. `loop.md` is versioned, being a process; the tickets stay local.
 
 ## HyperFrames contract (the parts that bit us)
 
@@ -149,10 +160,14 @@ Motion: the HyperFrames skills, written for a newer CLI than the pinned one (che
   desktop-app steps; media comes from local tools only (decision 17).
 - Overrides: `.drift` is motion-doctrine's *camera with intent*, one monotonic push or pull per take. A
   `cut-the-curve` template is ported from its worker version (`set` a baseline, then `to`). The vector ledger and
-  `seam-gate.mjs` work on a single-timeline composition (`films/video-intro-funk-v2`, 2026-10-25): the gate needs
-  `CHROME_PATH` (HyperFrames' chrome-headless-shell) and assumes a 1920×1080 viewport, so in 9:16 pick ledger
-  selectors above y = 1080. Not yet wired into studio's generated compositions (ticket 0008); there, judge seams on
-  frames.
+  `seam-gate.mjs` work on a single-timeline composition (`films/video-intro-funk-v2`, and studio's
+  `05-compose/<format>`, ticket 0008). Run it with `CHROME_PATH` (HyperFrames' chrome-headless-shell) and
+  `--server-cmd "<repo>/node_modules/.bin/hyperframes preview --foreground --no-open --port {port}"`, so it uses the
+  pinned CLI (its default is `npx --yes hyperframes`). It assumes a 1920×1080 viewport, so in 9:16 pick ledger
+  selectors above y = 1080. On studio compositions trust the vector rows (`*-moving`, `*-direction`, `z-sign-scan`);
+  `zero-overlap` fails by construction, since the rush plays under every overlay and the gate reads opacity, not
+  occlusion. Put `cut` on the frame the incoming side ignites: a take's `.cam` `set` inside the window reads as
+  velocity. Until compose writes the ledger (ticket 0025), judge seams on frames.
 
 Code: `mattpocock-skills:<name>`.
 - `tdd`: every change to `cutplan.ts`, `beats.ts` or `html.ts`, and every bug fix; the seams are their exported

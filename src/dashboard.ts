@@ -7,6 +7,7 @@ import { Project, readJson, STEPS, WORK_DIR } from "./lib/project.js";
 const UI = join(ROOT, "templates", "dashboard.html");
 import { listProjects, status } from "./pipeline.js";
 import { ROOT } from "./lib/project.js";
+import { nextTicket, projectTickets } from "./tickets.js";
 
 /**
  * Local dashboard: what the pipeline and the driving agent did for each project, step by step — cut plan, motion plan
@@ -35,6 +36,14 @@ export function projectReport(name: string) {
     .map((f) => ({ format: f, file: `07-render/${name}_${f}.mp4` }))
     .filter((r) => existsSync(join(p.dir, r.file)))
     .map((r) => ({ ...r, mtime: statSync(join(p.dir, r.file)).mtimeMs }));
+  // A tickets folder that does not parse must not take the whole page down: the journal says what went wrong.
+  let tickets: ReturnType<typeof projectTickets> = [];
+  let ticketsError: string | null = null;
+  try {
+    tickets = projectTickets(name);
+  } catch (e) {
+    ticketsError = (e as Error).message;
+  }
   const sheets = ["16x9", "9x16"].map((f) => `08-qa/sheet_${f}.png`).filter((f) => existsSync(join(p.dir, f)));
   return {
     name,
@@ -52,6 +61,10 @@ export function projectReport(name: string) {
     renders,
     sheets,
     mattePreview: existsSync(step("matte", "matte-preview.png")) ? "04-matte/matte-preview.png" : null,
+    tickets,
+    /** The ticket the loop is on (or stops at, for a checkpoint): the same rule as `studio_tickets next`. */
+    nextTicket: nextTicket(tickets)?.id ?? null,
+    ticketsError,
     events: history(p),
     jobs: allJobs().filter((j) => j.project === name),
   };

@@ -242,7 +242,9 @@ export async function applyCompose(
         comp = buildComposition({ beats: fewer, style, format: f, src, matte, hasCutout, masks, devices });
       }
       placements[fid] = comp.placements;
-      for (const b of beats.behind) if (!bad.includes(b.id)) keptBehind.add(b.id);
+      // Same beats in every format: one note each, not one per format.
+      for (const n of comp.notes) if (!cutout.notes.includes(n)) cutout.notes.push(n);
+      for (const b of beats.behind) if (!bad.includes(b.id) && !comp.dropped.includes(b.id)) keptBehind.add(b.id);
       writeFileSync(join(dir, "index.html"), comp.html);
       results.push(opts.check === false ? skipped(fid, dir) : await lintAndCheck(fid, dir, src.duration));
     }

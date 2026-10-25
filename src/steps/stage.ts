@@ -7,7 +7,7 @@ type T = (line: string) => void;
 /**
  * Full-screen kinetic typography (the punchline device of top short-form edits): an animated background lands over
  * the picture in an inverse zoom-through and each word slams in when it is spoken, overshooting from far, with a
- * three-frame landing shake on the block. The key word takes the accent colour and an extruded face. Captions step aside while a scene is on.
+ * three-frame landing shake on the block (a later landing cuts the earlier shake short). The key word takes the accent colour and an extruded face. Captions step aside while a scene is on.
  */
 export function buildScenes(scenes: Beats["scenes"], style: Style, W: number, H: number, blur: string, t: T): { html: string; css: string } {
   if (!scenes.length) return { html: "", css: "" };
@@ -48,17 +48,25 @@ export function buildScenes(scenes: Beats["scenes"], style: Style, W: number, H:
     t(`tl.to("#${id} .scbg", { opacity: 1, duration: ${io}, ease: "expo.out" }, ${r3(sc.start)});`);
     t(`tl.set("#${id} .sctext", { x: 0, y: 0, scale: 1, opacity: 1 }, ${r3(sc.start)});`);
     t(`tl.to("#${id} .scblob", { rotation: 40, xPercent: 12, duration: ${r3(sc.end - sc.start)}, ease: "none" }, ${r3(sc.start)});`);
+    const ats = sc.words.slice(0, words.length).map((w) => Math.max(sc.start + 0.02, w.start - 0.04));
     sc.words.forEach((w, k) => {
       if (k >= words.length) return;
-      const at = Math.max(sc.start + 0.02, w.start - 0.04);
+      const at = ats[k];
       const tilt = k % 2 ? 7 : -7;
       t(`tl.fromTo("#${id}w${k}", { scale: 2.6, opacity: 0, rotation: ${tilt}, y: -70 }, { scale: 1, opacity: 1, rotation: 0, y: 0, duration: 0.24, ease: "power4.out" }, ${r3(at)});`);
-      // Landing shake: three frames on the block, then rest.
+      // Landing shake: three frames on the block, then rest. A word that lands before the shake is over replaces it
+      // (its frames that would still be running are dropped): the reaction starts on its own cause, one at a time,
+      // and the newest shake is the one that brings the block back to rest.
       const land = at + 0.2;
-      [[9, -6], [-6, 4], [0, 0]].forEach(([x, y], f) =>
-        t(`tl.to("#${id} .sctext", { x: ${Math.round(x * unit)}, y: ${Math.round(y * unit)}, duration: 0.033, ease: "none" }, ${r3(land + f * 0.033)});`));
+      const next = k + 1 < ats.length ? r3(ats[k + 1] + 0.2) : Infinity;
+      [[9, -6], [-6, 4], [0, 0]].forEach(([x, y], f) => {
+        const from = r3(land + f * 0.033);
+        if (r3(from + 0.033) > next) return;
+        t(`tl.to("#${id} .sctext", { x: ${Math.round(x * unit)}, y: ${Math.round(y * unit)}, duration: 0.033, ease: "none" }, ${from});`);
+      });
     });
-    // Exit: accelerating away while the opacity falls linearly to 0.15, then the clip's end is the hard cut.
+    // Exit: accelerating away while the opacity falls linearly to 0.15, then the clip's end is the hard cut. 0.2 s
+    // against a 0.5 s entry: the inverse zoom-through's 30/70 split, the 75 % rule's cut-the-curve exception.
     const out = r3(sc.end - 0.2);
     t(`tl.to("#${id} .scbgf", { scale: 0.8, filter: "blur(20px)", duration: 0.2, ease: "power3.in" }, ${out});`);
     t(`tl.to("#${id} .sctf", { scale: 0.8, filter: "blur(10px)", duration: 0.2, ease: "power3.in" }, ${out});`);
@@ -116,9 +124,18 @@ export function buildDevices(slots: DeviceSlot[], style: Style, W: number, H: nu
     const cx = s.role === "broll" && vertical ? W * 0.36 : s.role === "broll" ? W * 0.38 : W / 2;
     const cy = s.role === "broll" && vertical ? H * 0.56 : H / 2;
     const dur = s.end - s.start;
-    t(`tl.fromTo("#${id} .phone", { rotationY: 38, rotationX: 14, z: -520, y: ${Math.round(220 * unit)}, opacity: 0 }, { rotationY: -10, rotationX: 5, z: 0, y: 0, opacity: 1, duration: 0.9, ease: "expo.out" }, ${r3(s.start)});`);
-    t(`tl.to("#${id} .phone", { rotationY: 9, rotationX: -2, y: ${Math.round(-28 * unit)}, duration: ${r3(Math.max(0.5, dur - 1.4))}, ease: "sine.inOut" }, ${r3(s.start + 0.9)});`);
+    // 0.8 s: motion-doctrine's longest single entry (expo.out, so most of the travel lands in the first half).
+    t(`tl.fromTo("#${id} .phone", { rotationY: 38, rotationX: 14, z: -520, y: ${Math.round(220 * unit)}, opacity: 0 }, { rotationY: -10, rotationX: 5, z: 0, y: 0, opacity: 1, duration: 0.8, ease: "expo.out" }, ${r3(s.start)});`);
+    // One slow turn while it plays (camera with intent, not a loop), then a zoom-through push out. The exit is
+    // shorter than the 75 % rule: it is a Z seam (cut-the-curve), accelerating to the cut with its 18 px blur.
+    t(`tl.to("#${id} .phone", { rotationY: 9, rotationX: -2, y: ${Math.round(-28 * unit)}, duration: ${r3(Math.max(0.5, dur - 1.3))}, ease: "sine.inOut" }, ${r3(s.start + 0.8)});`);
     t(`tl.to("#${id} .phone", { scale: 1.35, z: 260, opacity: 0, duration: 0.45, ease: "power3.in" }, ${r3(s.end - 0.45)});`);
+    // Full-surface blur (cut-the-curve: 18 px) rides the push on both ends. It sits on a wrapper: never on the
+    // <video>, never in a tween with opacity (headless compositing bug), and the phone's 3D needs its own perspective
+    // inside the filter, which flattens.
+    t(`tl.set("#${id} .devblur", { filter: "blur(18px)" }, ${r3(s.start)});`);
+    t(`tl.to("#${id} .devblur", { filter: "blur(0px)", duration: 0.5, ease: "expo.out" }, ${r3(s.start)});`);
+    t(`tl.to("#${id} .devblur", { filter: "blur(18px)", duration: 0.45, ease: "power3.in" }, ${r3(s.end - 0.45)});`);
     t(`tl.fromTo("#${id} .devglow", { rotation: 0, scale: 1 }, { rotation: 30, scale: 1.2, duration: ${r3(dur)}, ease: "none" }, ${r3(s.start)});`);
     // The stage is not a timed clip: its video is (a video inside a timed wrapper gets the wrong frames). The stage
     // shows by opacity around the video's own window, like the cutout.
@@ -126,14 +143,17 @@ export function buildDevices(slots: DeviceSlot[], style: Style, W: number, H: nu
     t(`tl.set("#${id}", { opacity: 0 }, ${r3(s.end)});`);
     return `    <div id="${id}" class="devstage" style="opacity:0;z-index:${s.role === "screen" ? 2 : 0}">
       <div class="devglow"></div>
+      <div class="devblur">
       <div class="phone" style="left:${Math.round(cx - pw / 2)}px;top:${Math.round(cy - ph / 2)}px">
         <video id="${id}v" src="${s.src}" data-start="${r3(s.start)}" data-duration="${r3(dur)}" data-media-start="${r3(s.from)}" data-track-index="11" muted playsinline></video>
         <div class="island"></div>
       </div>
+      </div>
     </div>`;
   }).join("\n");
   const css = `
-      .devstage { position: absolute; inset: 0; overflow: hidden; perspective: ${Math.round(1800 * unit)}px; background: #06070b; }
+      .devstage { position: absolute; inset: 0; overflow: hidden; background: #06070b; }
+      .devblur { position: absolute; inset: 0; perspective: ${Math.round(1800 * unit)}px; }
       .devglow { position: absolute; inset: -25%;
         background: radial-gradient(circle at 35% 30%, ${c.accent} 0%, rgba(0,0,0,0) 40%),
                     radial-gradient(circle at 70% 75%, ${c.panel} 0%, rgba(0,0,0,0) 50%); opacity: 0.5; }

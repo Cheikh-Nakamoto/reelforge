@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
-import { continuePipeline, createProject, listProjects, openProject, status } from "./pipeline.js";
+import { continuePipeline, createProject, listProjects, openProject, runQa, status, writeDefaultTickets } from "./pipeline.js";
+import { proposeTickets, showTickets, ticketClose, ticketNext } from "./tickets.js";
 import { doctor, formatChecks } from "./doctor.js";
 import { journaled, logEvent } from "./events.js";
 import { startDashboard } from "./dashboard.js";
@@ -15,7 +16,6 @@ import { applyCompose, proposeCompose } from "./steps/compose.js";
 import { matteSurvey } from "./steps/matte.js";
 import { audio } from "./steps/audio.js";
 import { render } from "./steps/render.js";
-import { qa } from "./steps/qa.js";
 import type { Format } from "./steps/html.js";
 
 const HELP = `studio — rushs face caméra → vidéos montées (100 % local)
@@ -38,6 +38,8 @@ const HELP = `studio — rushs face caméra → vidéos montées (100 % local)
       Corrige un mot mal entendu dans la transcription (sous-titres et graphiques).
   studio step <projet> <matte|beats|compose|audio|render|qa> [--force]
   studio status <projet>
+  studio tickets <projet> [--propose] [--next] [--close <id> --result "…" [--status ouvert --reprise "…"]]
+      Le montage découpé en tickets, une session chacun (work/<projet>/tickets/) : tableau, suivant, fermeture.
   studio serve [--port 4600]
       Tableau de bord local (127.0.0.1) : étapes, plan de coupe, motion design, journal de Claude, QA.
   studio styles | projects | doctor
@@ -70,6 +72,12 @@ async function main() {
       quality: { type: "string" },
       workers: { type: "string" },
       force: { type: "boolean" },
+      propose: { type: "boolean" },
+      next: { type: "boolean" },
+      close: { type: "string" },
+      result: { type: "string" },
+      status: { type: "string" },
+      reprise: { type: "string" },
       repropose: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
@@ -80,7 +88,7 @@ async function main() {
   // Every CLI run goes to the project's journal too (dashboard), with the command that started it.
   const projName = cmd === "run" && args[0] ? o.name ?? Project.nameFromSource(args[0])
     : cmd === "assemble" && args[0] && existsSync(args[0]) ? loadAssemblySpec(args[0]).name
-    : ["cut", "step", "status", "fix", "recipe-save"].includes(cmd ?? "") ? args[0] : undefined;
+    : ["cut", "step", "status", "fix", "recipe-save", "tickets"].includes(cmd ?? "") ? args[0] : undefined;
   const log = projName ? journaled(projName, "cli", baseLog) : baseLog;
   if (projName && cmd !== "status") logEvent(projName, { kind: "tool", source: "cli", tool: `studio ${cmd}`, args: process.argv.slice(3), message: `studio ${process.argv.slice(2).join(" ")}` });
   const quality = o.quality as "draft" | "standard" | "high" | undefined;
@@ -93,6 +101,7 @@ async function main() {
       if (r) log(`[recette] ${r.recipe.name} — ${r.style}, ${r.formats.join(" + ")}`);
       const { project, style } = await createProject(args[0], styleName, {
         overrides: r?.overrides, recipe: r?.recipe.name, formats: r?.formats, name: o.name, like: o.like ?? r?.recipe.like, engine: o.engine as "hybrid" | "parakeet" | "whisper" | undefined, language: o.language, model: o.model, log });
+      writeDefaultTickets(project.name);
       const out = await continuePipeline(project, style, { approveCut: o["approve-cut"], formats, quality, repropose: o.repropose, log });
       if (out.status === "awaiting-cut-approval") {
         console.log(readFileSync(out.plan, "utf8"));
@@ -105,6 +114,7 @@ async function main() {
     }
     case "assemble": {
       const spec = { ...loadAssemblySpec(need(args[0], "spec.yaml")), ...(o.like ? { like: o.like } : {}) };
+      writeDefaultTickets(spec.name, spec);
       let out = await buildAssembly(spec, { log });
       if (out.status === "awaiting-cut-approval" && o["approve-cut"]) {
         for (const p of out.pending) await applyCut(openProject(p.project).project);
@@ -177,9 +187,25 @@ async function main() {
       else if (step === "audio") console.log(JSON.stringify((await audio(project, style, { force })).report, null, 2));
       else if (step === "render" || step === "qa") {
         const r = await render(project, { formats, quality, force: force && step === "render", onProgress: (l) => l && log(l) });
-        if (step === "qa") console.log(JSON.stringify(await qa(project, style, r.outputs), null, 2));
+        if (step === "qa") console.log(JSON.stringify(await runQa(project, style, r.outputs), null, 2));
         else console.log(JSON.stringify(r.outputs, null, 2));
       } else throw new Error(`Étape inconnue : ${step}`);
+      return;
+    }
+    case "tickets": {
+      const name = need(args[0], "projet");
+      openProject(name);
+      if (o.close) {
+        const st = o.status === undefined ? undefined : o.status === "ouvert" || o.status === "fait" ? o.status : undefined;
+        if (o.status !== undefined && !st) throw new Error("--status fait | ouvert");
+        const t = ticketClose(name, o.close, need(o.result, "--result"), { status: st, reprise: o.reprise });
+        log(`ticket ${t.id} : ${t.status}`);
+      }
+      if (o.propose) proposeTickets(name);
+      if (o.next) {
+        const n = ticketNext(name);
+        console.log(n.id !== null ? n.markdown : n.reason);
+      } else console.log(showTickets(name));
       return;
     }
     case "status":

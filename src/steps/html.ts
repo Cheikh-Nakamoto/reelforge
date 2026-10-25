@@ -5,6 +5,7 @@ import { placeBehind, type Mask, type Placement } from "./placement.js";
 import { CHAR_EM, esc, extrude, r1, r3 } from "../lib/markup.js";
 import { buildCaptions, captionZone } from "./captions.js";
 import { buildDevices, buildScenes, type DeviceSlot } from "./stage.js";
+import { behindFxClashes } from "./effects.js";
 
 export interface Format {
   id: "16x9" | "9x16";
@@ -67,15 +68,54 @@ export interface HtmlInput {
   devices?: DeviceSlot[];
 }
 
+// A behind-word's phases, shared by the word and by the camera that must not fight its Z sign: the retraction of its
+// arrival (shortened on a short word so it still holds), and its exit before the hard cut.
+const BEHIND_EXIT = 0.2;
+/**
+ * Delay between the items of a cascade: its usual gap, tightened so the whole cascade starts within 0.5 s
+ * (motion-doctrine: a longer stagger reads as a queue). Rounded down to the millisecond so r3 never pushes it over.
+ */
+const cascadeGap = (gap: number, n: number) => (n > 1 ? Math.min(gap, Math.floor((0.5 / (n - 1)) * 1000) / 1000) : gap);
+const behindEntry = (b: { start: number; end: number }) => r3(Math.min(0.5, Math.max(0.1, b.end - b.start - 0.45)));
+
 export function buildHtml(input: HtmlInput): string {
   return buildComposition(input).html;
 }
 
-export function buildComposition({ beats, style, format: f, src, matte, hasCutout, masks, devices = [] }: HtmlInput): {
+export function buildComposition(input: HtmlInput): {
   html: string;
   placements: Record<string, Placement>;
+  /** What the composition changed in the beats it was given (for QA and the reviewing agent). */
+  notes: string[];
+  /** Behind-words left out of the composition (by id). */
+  dropped: string[];
 } {
+  // A frame reduction (hand-edited: proposeBeats never puts one there) moves both stacks off the full frame the word was
+  // placed on, and its release grows them while the word shrinks. Reduced windows get no behind-words (decision 9):
+  // the word goes, with its colour pop (the speaker would turn grey alone).
+  const framed = input.beats.behind.flatMap((b) => {
+    const fr = input.beats.frames.find((x) => b.start < x.end && b.end > x.start);
+    return fr ? [{ b, fr }] : [];
+  });
+  if (framed.length) {
+    const gone = framed.map((x) => x.b);
+    const rest = buildComposition({
+      ...input,
+      beats: {
+        ...input.beats,
+        behind: input.beats.behind.filter((b) => !gone.includes(b)),
+        fx: input.beats.fx.filter((x) => x.kind !== "colorPop" || !gone.some((b) => Math.abs(b.start - x.at) < 0.05)),
+      },
+    });
+    const notes = framed.map(({ b, fr }) =>
+      `Mot derrière « ${b.text} » (${b.start.toFixed(2)} s) retiré : il tombe dans la réduction de cadre ${fr.id} ` +
+        `(${fr.start.toFixed(2)}–${fr.end.toFixed(2)} s), qui bougerait le sujet sous le mot. Déplace l'un des deux dans beats.json.`);
+    return { ...rest, notes: [...notes, ...rest.notes], dropped: [...gone.map((b) => b.id), ...rest.dropped] };
+  }
+  const { beats, style, format: f, src, matte, hasCutout, masks, devices = [] } = input;
   const placements: Record<string, Placement> = {};
+  const clashes = behindFxClashes(beats);
+  const notes = clashes.map((c) => c.note);
   // After Effects-style motion blur (templates/vendor/motion-blur.js) on the elements that move fast.
   const blur = style.motion.blur ? ` data-hf-motion-blur='{"samplesPerFrame":8}'` : "";
   const W = f.width, H = f.height, D = r3(beats.duration);
@@ -105,6 +145,8 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
     let tight = false;
     beats.cuts.forEach((at, k) => {
       if ((beats.cuts[k + 1] ?? D) - at < 0.8) return;
+      // A take keeps its framing through a behind-word: the word was placed on the subject at the word's start.
+      if (beats.behind.some((b) => at > b.start && at < b.end)) return;
       tight = !tight;
       jumpSteps.push({ at, scale: tight ? style.motion.jumpZoom : 1 });
     });
@@ -141,9 +183,18 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
     const id = `bh${i}`;
     const anim = style.behind.animation;
     const dur = r3(b.end - b.start);
+    // The embed is an arrival (cut-the-curve §2): every animation leaves on the inverse zoom-through's exit, so the
+    // word only ever shrinks from its first frame to its last (one Z sign, a pull). Blur rides the .bwf wrapper and
+    // opacity the .w inside it: both in one tween composite wrong in headless Chrome. 10 px: text-scale blur.
+    // The wrapper scales about the word's own centre, so the measured placement (decision 7) is where it lands.
+    const io = behindEntry(b);
+    if (anim !== "slam") t(`tl.set("#${id} .bwf", { scale: 1, filter: "blur(0px)" }, ${r3(b.start)});`);
     if (anim === "slam") {
-      t(`tl.fromTo("#${id} .w", { scale: 1.45, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.28, ease: "power4.out" }, ${r3(b.start)});`);
-      t(`tl.to("#${id} .w", { scale: 1.05, duration: ${r3(dur - 0.5)}, ease: "none" }, ${r3(b.start + 0.28)});`);
+      // Slam keeps its heavier oversize (1.45, against the catalog's 1.25): it lands from just behind the camera.
+      t(`tl.set("#${id} .bwf", { scale: 1.45, filter: "blur(10px)" }, ${r3(b.start)});`);
+      t(`tl.to("#${id} .bwf", { scale: 1, filter: "blur(0px)", duration: ${io}, ease: "expo.out" }, ${r3(b.start)});`);
+      t(`tl.set("#${id} .w", { opacity: 0.15 }, ${r3(b.start)});`);
+      t(`tl.to("#${id} .w", { opacity: 1, duration: ${io}, ease: "expo.out" }, ${r3(b.start)});`);
     } else if (anim === "flip") {
       t(`tl.fromTo("#${id} .w", { rotationX: -95, opacity: 0, transformPerspective: 1100 }, { rotationX: 0, opacity: 1, duration: 0.5, ease: "back.out(1.5)" }, ${r3(b.start)});`);
     } else if (anim === "rise") {
@@ -157,11 +208,17 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
         t(`tl.fromTo("#${id} .l${k}", { x: ${push}, opacity: 0 }, { x: 0, opacity: 1, duration: 0.7, ease: "${style.motion.ease}" }, ${r3(b.start)});`);
       });
     }
-    t(`tl.to("#${id} .w", { opacity: 0, duration: 0.22, ease: "power2.in" }, ${r3(b.end - 0.22)});`);
+    // Exit: accelerating away while the opacity falls linearly to 0.15, then the clip's end is the hard cut. 0.2 s
+    // against an entry up to 0.5 s: the inverse zoom-through's 30/70 split, the 75 % rule's cut-the-curve exception.
+    const out = r3(b.end - BEHIND_EXIT);
+    t(`tl.to("#${id} .bwf", { scale: 0.8, filter: "blur(10px)", duration: ${BEHIND_EXIT}, ease: "power3.in" }, ${out});`);
+    t(`tl.to("#${id} .w", { opacity: 0.15, duration: ${BEHIND_EXIT}, ease: "none" }, ${out});`);
     return `    <div id="${id}" class="clip behind" data-start="${r3(b.start)}" data-duration="${dur}" data-track-index="2" data-layout-allow-overflow style="z-index:2">
+      <div class="bwf" style="transform-origin:${Math.round(cx)}px ${Math.round(cy)}px">
       <div class="w"${blur} style="top:${Math.round(cy - fs / 2)}px;left:${Math.round(cx - W / 2)}px;font-size:${Math.round(fs)}px;line-height:${Math.round(fs)}px${anim === "track" ? ";opacity:0" : ""}">${
         anim === "track" ? [...text].map((ch, k) => `<span class="l${k}" style="display:inline-block">${esc(ch)}</span>`).join("") : esc(text)
       }</div>
+      </div>
     </div>`;
   }).join("\n");
 
@@ -178,13 +235,15 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
   // the cutout stays registered on the footage. Two nested levels: .cam alternates framing on jump cuts, .push
   // punches in during behind-words. One baseline each, then plain tweens (repeated fromTo would leak into seeks).
   // Slow push on every take, alternating in and out, so a talking head never sits still.
+  // A take that holds a behind-word always pulls: the word only shrinks (one Z sign), so the rush recedes with it.
   if (style.motion.drift > 1) {
     const edges = [0, ...beats.cuts, D];
     t(`tl.set(".drift", { scale: 1 }, 0);`);
     for (let k = 0; k + 1 < edges.length; k++) {
       const [a, b] = [edges[k], edges[k + 1]];
       if (b - a < 0.6) continue;
-      const [from, to] = k % 2 ? [style.motion.drift, 1] : [1, style.motion.drift];
+      const pull = k % 2 === 1 || beats.behind.some((w) => w.start < b && w.end > a);
+      const [from, to] = pull ? [style.motion.drift, 1] : [1, style.motion.drift];
       t(`tl.set(".drift", { scale: ${from} }, ${r3(a)});`);
       t(`tl.to(".drift", { scale: ${to}, duration: ${r3(b - a)}, ease: "none" }, ${r3(a)});`);
     }
@@ -196,9 +255,14 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
   }
   if (style.motion.punchIn > 1 && beats.behind.length) {
     t(`tl.set(".push", { scale: 1 }, 0);`);
+    // The punch-in waits for the word to settle and stops when it starts to leave: a push while the word retracts or
+    // recedes would put two Z signs in one frame. Its return pulls back with the word's exit, not on the hard cut.
     for (const b of beats.behind) {
-      t(`tl.to(".push", { scale: ${style.motion.punchIn}, duration: ${r3(b.end - b.start)}, ease: "power1.out" }, ${r3(b.start)});`);
-      t(`tl.to(".push", { scale: 1, duration: 0.35, ease: "power2.inOut" }, ${r3(b.end)});`);
+      const [from, until] = [r3(b.start + behindEntry(b)), r3(b.end - BEHIND_EXIT)];
+      if (until - from >= 0.15) {
+        t(`tl.to(".push", { scale: ${style.motion.punchIn}, duration: ${r3(until - from)}, ease: "power1.out" }, ${from});`);
+      }
+      t(`tl.to(".push", { scale: 1, duration: 0.35, ease: "power2.inOut" }, ${until});`);
     }
   }
 
@@ -209,7 +273,11 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
 
   // ---------- effects (CapCut-style: transforms on both stacks and overlays, so the cutout stays registered)
   const colorPop = hasCutout && beats.fx.some((f) => f.kind === "colorPop");
-  const fxHtml = buildEffects(beats.fx, style, W, t, colorPop);
+  const shrinks = beats.behind.flatMap((b) => [
+    ...(style.behind.animation === "slam" ? [{ start: b.start, end: b.start + behindEntry(b) }] : []),
+    { start: b.end - BEHIND_EXIT, end: b.end },
+  ]);
+  const fxHtml = buildEffects(beats.fx, style, W, t, colorPop, shrinks, new Set(clashes.map((c) => c.fx.id)));
 
   // ---------- motion graphics
   let listN = 0;
@@ -217,9 +285,16 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
   const mgY = Math.round(H * (vertical ? 0.075 : 0.09));
   const depth = style.motion.depth;
   // Entrance of a graphic: flat slide, or a 3D tip-in from below the horizon when the style has depth.
+  // A side entry (side 1) comes from the right, travelling left like every exit: the film's one current.
   const enter = (sel: string, at: number, side = 0) => depth > 0
-    ? t(`tl.fromTo("${sel}", { rotationX: ${Math.round(-70 * depth)}, rotationY: ${Math.round(side * 55 * depth)}, z: ${Math.round(-260 * depth)}, y: 30, opacity: 0, transformPerspective: 1000 }, { rotationX: 0, rotationY: 0, z: 0, y: 0, opacity: 1, duration: 0.55, ease: "back.out(1.3)" }, ${r3(at)});`)
+    ? t(`tl.fromTo("${sel}", { ${side ? `x: ${side * 80}, ` : ""}rotationX: ${Math.round(-70 * depth)}, rotationY: ${Math.round(side * 55 * depth)}, z: ${Math.round(-260 * depth)}, y: 30, opacity: 0, transformPerspective: 1000 }, { ${side ? "x: 0, " : ""}rotationX: 0, rotationY: 0, z: 0, y: 0, opacity: 1, duration: 0.55, ease: "back.out(1.3)" }, ${r3(at)});`)
     : t(`tl.fromTo("${sel}", { x: ${side * 80}, y: ${side ? 0 : 30}, opacity: 0 }, { x: 0, y: 0, opacity: 1, duration: 0.35, ease: "${style.motion.ease}" }, ${r3(at)});`);
+  // Exit in the current (cut-the-curve): a partial slide (12 % of W) accelerating out, so it leaves at full speed.
+  // The fade is its own linear tween (0.18 s, the catalog's shortest) that dies 0.02 s before the clip ends: a lone
+  // graphic has no incoming side to carry the eye, and a fade starting with the slide was over at ~29 % of the
+  // power4.in path, hiding the move (~15 px seen in 9:16). The exit stays 0.34 s whatever the entry (0.35 flat,
+  // 0.55 tipped in 3D): cut-the-curve sets the exit, not the 75 % rule, and every graphic leaves alike.
+  const exitX = Math.round(W * 0.12);
   const mgHtml = beats.mographs.map((m, i) => {
     const id = `mg${i}`;
     const dur = r3(m.end - m.start);
@@ -228,33 +303,39 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
     let inner = "";
     if (m.kind === "hook") {
       inner = `<div class="hook">${(m.items ?? [m.text]).map((l, k) => `<div class="h3d hl${k}"${blur}>${esc(l.toUpperCase())}</div>`).join("")}</div>`;
-      (m.items ?? [m.text]).forEach((_, k) =>
-        t(`tl.fromTo("#${id} .hl${k}", { rotationX: -90, opacity: 0, transformPerspective: 900 }, { rotationX: 0, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }, ${r3(m.start + k * 0.18)});`));
+      const lines = m.items ?? [m.text];
+      const gap = cascadeGap(0.18, lines.length);
+      lines.forEach((_, k) =>
+        t(`tl.fromTo("#${id} .hl${k}", { rotationX: -90, opacity: 0, transformPerspective: 900 }, { rotationX: 0, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }, ${r3(m.start + k * gap)});`));
     } else if (m.kind === "question") {
       const words = m.text.split(/\s+/);
       inner = `<div class="qcard"><span class="qmark">?</span><div class="qtext">${words.map((w, k) => `<span class="qw q${k}">${esc(w)}</span>`).join(" ")}</div></div>`;
       enter(`#${id} .qcard`, m.start);
-      words.forEach((_, k) => t(`tl.fromTo("#${id} .q${k}", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.25, ease: "power3.out" }, ${r3(m.start + 0.2 + k * 0.07)});`));
+      const gap = cascadeGap(0.07, words.length);
+      words.forEach((_, k) => t(`tl.fromTo("#${id} .q${k}", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.25, ease: "power3.out" }, ${r3(m.start + 0.2 + k * gap)});`));
     } else if (m.kind === "url") {
       const chars = [...m.text];
       inner = `<div class="urlbar"><svg class="lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke-width="2.4"/></svg>` +
         `<span class="urltext">${chars.map((c, k) => `<span class="uc u${k}" style="opacity:0">${esc(c)}</span>`).join("")}</span><span class="caret">|</span></div>`;
       enter(`#${id} .urlbar`, m.start);
-      // Typed one character at a time, then a blinking caret (deterministic sets, no timers).
+      // Typed one character at a time, then a blinking caret (deterministic sets, no timers). Typing is the bar's
+      // sequenced UI life, not a cascade: the 0.5 s stagger cap does not apply to it.
       chars.forEach((_, k) => t(`tl.set("#${id} .u${k}", { opacity: 1 }, ${r3(m.start + 0.35 + k * 0.045)});`));
       for (let b = m.start + 0.35; b < m.end - 0.3; b += 0.26) t(`tl.set("#${id} .caret", { opacity: ${Math.round((b - m.start) / 0.26) % 2} }, ${r3(b)});`);
     } else if (m.kind === "compare") {
       const [a, b] = m.items ?? m.text.split(" vs ");
       inner = `<div class="vs"><div class="side sa">${esc((a ?? "").toUpperCase())}</div><div class="vschip">VS</div><div class="side sb">${esc((b ?? "").toUpperCase())}</div></div>`;
-      enter(`#${id} .sa`, m.start, -1);
-      t(`tl.fromTo("#${id} .vschip", { scale: 0, rotation: -30 }, { scale: 1, rotation: 0, duration: 0.35, ease: "back.out(2.5)" }, ${r3(m.start + 0.2)});`);
+      enter(`#${id} .sa`, m.start, 1);
+      // back.out(1.6) like the hook lines and the CTA release: the graphics' one overshoot (2.5 read as rubber).
+      t(`tl.fromTo("#${id} .vschip", { scale: 0, rotation: -30 }, { scale: 1, rotation: 0, duration: 0.35, ease: "back.out(1.6)" }, ${r3(m.start + 0.2)});`);
       enter(`#${id} .sb`, m.start + 0.3, 1);
     } else if (m.kind === "definition") {
       const [term, meaning] = m.items ?? [m.text, ""];
       inner = `<div class="panel def"><div class="term">${esc(term.toUpperCase())}</div><div class="bar"></div><div class="mean">${esc(meaning)}</div></div>`;
       enter(`#${id} .def`, m.start);
+      // A stroke being drawn, not an arrival: in-out like a hand drawing it (the no-inOut rule is for entrances).
       t(`tl.fromTo("#${id} .bar", { scaleX: 0 }, { scaleX: 1, duration: 0.45, ease: "power3.inOut" }, ${r3(m.start + 0.3)});`);
-      t(`tl.fromTo("#${id} .mean", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.3 }, ${r3(m.start + 0.55)});`);
+      t(`tl.fromTo("#${id} .mean", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, ${r3(m.start + 0.55)});`);
     } else if (m.kind === "cta") {
       inner = `<div class="cta"><span>${esc(m.text.toUpperCase())}</span><svg viewBox="0 0 24 24"><path d="M5 12h12M12 6l6 6-6 6" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`;
       enter(`#${id} .cta`, m.start);
@@ -268,19 +349,22 @@ export function buildComposition({ beats, style, format: f, src, matte, hasCutou
       inner = `<div class="panel counter"><div class="num" style="font-size:${big}px">0${esc(m.suffix ?? "")}</div>` +
         (m.label ? `<div class="lbl">${esc(m.label)}</div>` : "") + `</div>`;
       enter(`#${id} .panel`, m.start);
+      // The count is the panel's sustained motion (sequenced UI life), not an entrance: 0.9 s is over the entry cap.
       t(`(() => { const o = { v: 0 }; const el = document.querySelector("#${id} .num"); ` +
         `tl.to(o, { v: ${m.value ?? 0}, duration: 0.9, ease: "power2.out", onUpdate: () => { el.textContent = fmt(o.v, ${m.value ?? 0}) + ${JSON.stringify(m.suffix ?? "")}; } }, ${r3(m.start + 0.1)}); })();`);
     } else if (m.kind === "underline") {
       inner = `<div class="panel plain"><div class="kw">${esc(m.text.toUpperCase())}</div><div class="bar"></div></div>`;
-      t(`tl.fromTo("#${id} .kw", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3, ease: "${style.motion.ease}" }, ${s});`);
+      // The word rises like a flat graphic entrance (same distance, ease and duration), so the two read as one family.
+      t(`tl.fromTo("#${id} .kw", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: "${style.motion.ease}" }, ${s});`);
       t(`tl.fromTo("#${id} .bar", { scaleX: 0 }, { scaleX: 1, duration: 0.45, ease: "power3.inOut" }, ${r3(m.start + 0.2)});`);
     } else {
       const chip = m.kind === "callout" ? `<span class="chip">!</span>` : m.kind === "list" ? `<span class="chip">${++listN}</span>` : "";
       const cls = m.kind === "badge" ? "pill outline" : "pill";
       inner = `<div class="${cls}">${chip}<span>${esc(m.text.toUpperCase())}</span></div>`;
-      enter(`#${id} .pill`, m.start, vertical ? 0 : -1);
+      enter(`#${id} .pill`, m.start, vertical ? 0 : 1);
     }
-    t(`tl.to("#${id} > div", { opacity: 0, duration: 0.25, ease: "power2.in" }, ${r3(m.end - 0.25)});`);
+    t(`tl.to("#${id} > div", { x: -${exitX}, duration: 0.34, ease: "power4.in" }, ${r3(m.end - 0.34)});`);
+    t(`tl.to("#${id} > div", { opacity: 0, duration: 0.18, ease: "none" }, ${r3(m.end - 0.2)});`);
     return `    <div id="${id}" class="clip mg" data-start="${s}" data-duration="${dur}" data-track-index="3" style="z-index:5">
       <div class="mg-pos"${blur} style="left:${align === "center" ? 0 : mgX}px;top:${mgY}px;${align === "center" ? `width:${W}px;` : ""}text-align:${align}">${inner}</div>
     </div>`;
@@ -332,6 +416,7 @@ ${beats.captions.some((g) => g.emoji) ? `      @font-face { font-family: "Noto C
         background: radial-gradient(ellipse 30% 70% at 4% 50%, rgba(255,120,40,1), rgba(255,80,30,0) 75%),
                     radial-gradient(ellipse 42% 55% at 38% 35%, rgba(255,170,70,0.95), rgba(255,120,50,0) 72%),
                     radial-gradient(ellipse 34% 42% at 66% 68%, rgba(255,215,140,0.85), rgba(255,170,90,0) 72%); }
+      .behind .bwf { position: absolute; inset: 0; }
       .behind .w { position: absolute; left: 0; width: ${W}px; text-align: center; white-space: nowrap;
         font-family: "${behindFont}"; font-weight: ${style.fonts.behindWeight}; color: ${c.behind}; letter-spacing: 0.02em;
         ${depth >= 0.5 ? `text-shadow: ${extrude("rgba(0,0,0,0.55)", Math.round(10 * unit * depth))};` : ""} }
@@ -413,7 +498,27 @@ ${tlLines.join("\n")}
   </body>
 </html>
 `;
-  return { html, placements };
+  return { html, placements, notes, dropped: [] };
+}
+
+// cut-the-curve §7: a single ease (power3.inOut) smacks the group to a stop; a ramp-in, a linear burst and a tail
+// at least three times the ramp-in read as a purposeful slide. Fractions are of the distance and of the time.
+const NUDGE = [
+  { to: 0.1, time: 0.2, ease: "power3.in" },
+  { to: 0.75, time: 0.18, ease: "none" },
+  { to: 1, time: 0.62, ease: "power4.out" },
+] as const;
+
+type FramePose = { x: number; y: number; scale: number };
+
+function nudge(t: (s: string) => void, from: FramePose, to: FramePose, at: number, duration: number) {
+  let time = at;
+  for (const p of NUDGE) {
+    const mix = (a: number, b: number) => a + (b - a) * p.to;
+    const d = r3(duration * p.time);
+    t(`tl.to(".frame", { x: ${Math.round(mix(from.x, to.x))}, y: ${Math.round(mix(from.y, to.y))}, scale: ${r3(mix(from.scale, to.scale))}, duration: ${d}, ease: "${p.ease}" }, ${r3(time)});`);
+    time += d;
+  }
 }
 
 /**
@@ -434,8 +539,8 @@ function buildFrames(frames: Beats["frames"], style: Style, W: number, H: number
     const radius = r3((style.frame.radius * unit) / s);
     const io = Math.min(0.45, (f.end - f.start) / 3);
     t(`tl.set(".frame", { borderRadius: ${radius} }, ${r3(f.start)});`);
-    t(`tl.to(".frame", { x: ${Math.round(x)}, y: ${Math.round(y)}, scale: ${r3(s)}, duration: ${r3(io)}, ease: "power3.inOut" }, ${r3(f.start)});`);
-    t(`tl.to(".frame", { x: 0, y: 0, scale: 1, duration: ${r3(io)}, ease: "power3.inOut" }, ${r3(f.end - io)});`);
+    nudge(t, { x: 0, y: 0, scale: 1 }, { x, y, scale: s }, f.start, io);
+    nudge(t, { x, y, scale: s }, { x: 0, y: 0, scale: 1 }, f.end - io, io);
     t(`tl.set(".frame", { borderRadius: 0 }, ${r3(f.end)});`);
     if (f.broll && !brollInDevice) {
       brollHtml += `    <video id="broll${i}" class="broll" src="assets/broll-${i}.mp4" data-start="${r3(f.start)}" data-duration="${r3(Math.min(D, f.end) - f.start)}" data-media-start="${r3(f.broll.from)}" data-track-index="8" muted playsinline></video>\n`;
@@ -449,7 +554,11 @@ function buildFrames(frames: Beats["frames"], style: Style, W: number, H: number
  * the footage; flash and light leaks are overlays; the colour pop shows a black-and-white copy of the footage under
  * the cutout.
  */
-function buildEffects(fx: Beats["fx"], style: Style, W: number, t: (s: string) => void, colorPop: boolean): string {
+function buildEffects(
+  fx: Beats["fx"], style: Style, W: number, t: (s: string) => void, colorPop: boolean,
+  shrinks: { start: number; end: number }[] = [],
+  underWord = new Set<string>(),
+): string {
   const k = style.effects.intensity;
   const cam = fx.filter((f) => f.kind === "shake" || f.kind === "zoomPunch" || f.kind === "whip" || f.kind === "ladder");
   if (cam.length) t(`tl.set(".shake", { x: 0, y: 0, xPercent: 0, scale: 1 }, 0);`);
@@ -474,17 +583,28 @@ function buildEffects(fx: Beats["fx"], style: Style, W: number, t: (s: string) =
       }
       t(`tl.to(".shake", { x: 0, y: 0, duration: ${r3(d / (steps + 1))}, ease: "power1.out" }, ${r3(f.at + (steps * d) / (steps + 1))});`);
     } else if (f.kind === "zoomPunch") {
-      t(`tl.to(".shake", { scale: ${r3(1 + 0.13 * k)}, duration: 0.08, ease: "power3.out" }, ${at});`);
-      t(`tl.to(".shake", { scale: 1, duration: ${r3(d - 0.08)}, ease: "power2.inOut" }, ${r3(f.at + 0.08)});`);
+      const peak = r3(1 + 0.13 * k);
+      if (shrinks.some((w) => f.at < w.end && f.at + 0.08 > w.start)) {
+        // On a behind-word that is retracting or leaving, the punch lands as an impact frame and recoils with the
+        // word (inverse zoom-through): growing over 0.08 s would put a push against the word's pull.
+        t(`tl.set(".shake", { scale: ${peak} }, ${at});`);
+        t(`tl.to(".shake", { scale: 1, duration: ${r3(d)}, ease: "expo.out" }, ${at});`);
+      } else {
+        t(`tl.to(".shake", { scale: ${peak}, duration: 0.08, ease: "power3.out" }, ${at});`);
+        t(`tl.to(".shake", { scale: 1, duration: ${r3(d - 0.08)}, ease: "power2.inOut" }, ${r3(f.at + 0.08)});`);
+      }
     } else if (f.kind === "whip") {
-      // Out of the old take, cut, into the new one from the other side; a soft flash hides the edges.
+      // Out of the old take, cut, into the new one from the other side; a soft flash hides the edges. Under a
+      // behind-word only the flash plays (behindFxClashes): the rush must not slide under a fixed word.
       const off = Math.round(16 * k) * whipDir;
-      t(`tl.to(".shake", { xPercent: ${-off}, scale: 1.15, duration: ${r3(d / 2)}, ease: "power2.in" }, ${at});`);
-      t(`tl.set(".shake", { xPercent: ${off} }, ${r3(f.at + d / 2)});`);
-      t(`tl.to(".shake", { xPercent: 0, scale: 1, duration: ${r3(d / 2)}, ease: "power2.out" }, ${r3(f.at + d / 2)});`);
+      if (!underWord.has(f.id)) {
+        t(`tl.to(".shake", { xPercent: ${-off}, scale: 1.15, duration: ${r3(d / 2)}, ease: "power2.in" }, ${at});`);
+        t(`tl.set(".shake", { xPercent: ${off} }, ${r3(f.at + d / 2)});`);
+        t(`tl.to(".shake", { xPercent: 0, scale: 1, duration: ${r3(d / 2)}, ease: "power2.out" }, ${r3(f.at + d / 2)});`);
+        whipDir = -whipDir;
+      }
       t(`tl.to("#flash", { opacity: ${r3(0.35 * k)}, duration: ${r3(d / 2)}, ease: "power1.in" }, ${at});`);
       t(`tl.to("#flash", { opacity: 0, duration: ${r3(d / 2)}, ease: "power1.out" }, ${r3(f.at + d / 2)});`);
-      whipDir = -whipDir;
     } else if (f.kind === "flash") {
       t(`tl.to("#flash", { opacity: ${r3(Math.min(1, 0.85 * k))}, duration: 0.06, ease: "power2.out" }, ${at});`);
       t(`tl.to("#flash", { opacity: 0, duration: ${r3(d - 0.06)}, ease: "power2.in" }, ${r3(f.at + 0.06)});`);
@@ -493,13 +613,14 @@ function buildEffects(fx: Beats["fx"], style: Style, W: number, t: (s: string) =
       const n = Math.max(2, Math.round(d * 30));
       for (let s = 0; s < n; s++) t(`tl.set("#flash", { opacity: ${s % 2 ? 0 : r3(Math.min(0.9, 0.7 * k))} }, ${r3(f.at + s / 30)});`);
       t(`tl.set("#flash", { opacity: 0 }, ${r3(f.at + n / 30)});`);
-    } else if (f.kind === "ladder") {
+    } else if (f.kind === "ladder" && !underWord.has(f.id)) {
       // Four hard zoom steps (jump zooms, no easing), then a quick release to the take's framing.
       const hold = d - 0.18;
       for (let s = 0; s < 4; s++) t(`tl.set(".shake", { scale: ${r3(1 + 0.055 * (s + 1) * k)} }, ${r3(f.at + (s * hold) / 4)});`);
       t(`tl.to(".shake", { scale: 1, duration: 0.18, ease: "power2.out" }, ${r3(f.at + hold)});`);
     } else if (f.kind === "lightLeak") {
       const id = `leak${i}`;
+      // One sweep across the frame, brightest mid-way: not an entrance and an exit, so the 75 % rule does not apply.
       html += `    <div id="${id}" class="clip leak" data-start="${at}" data-duration="${r3(d)}" data-track-index="7"><div class="lk"></div></div>\n`;
       t(`tl.fromTo("#${id} .lk", { opacity: 0, xPercent: -35 }, { opacity: ${r3(Math.min(1, 0.95 * k + 0.1))}, xPercent: 0, duration: ${r3(d * 0.4)}, ease: "sine.out" }, ${at});`);
       t(`tl.to("#${id} .lk", { opacity: 0, xPercent: 35, duration: ${r3(d * 0.6)}, ease: "sine.in" }, ${r3(f.at + d * 0.4)});`);

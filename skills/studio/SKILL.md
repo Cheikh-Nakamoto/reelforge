@@ -78,7 +78,9 @@ the user can select (`/mcp__studio__demo-produit`, `/mcp__studio__questionnaire`
      between two sentences of the same thought. Fewer is better: the style already caps the density. A glitch suits
      tech words (bug, erreur, hack), a strobe a shout ("attention"), a ladder the opening of a long take; two
      effects that drive the same layer (camera: shake/zoomPunch/whip/ladder; overlay: flash/strobe) must not
-     overlap. Add a matching `sfx` cue when you add an effect (glitch → glitch, strobe → hit, ladder → a click per
+     overlap. No whip or ladder on a behind-word, and no frame reduction over one: the rush would move under a
+     word placed on it, so compose plays such a whip as its flash only, drops such a ladder, drops the word from a
+     reduced frame, and the summary flags each one (`⚠`). Add a matching `sfx` cue when you add an effect (glitch → glitch, strobe → hit, ladder → a click per
      step); a cue is where the sound lands (a whoosh's peak, any other sound's attack);
    - timing follows `motion-doctrine`: an effect and its sound land on the frame of their cause (the word's start,
      the cut), not a few frames later; keep 0.3–0.75 s of stillness before a payoff (a behind-word, a stage scene,
@@ -131,6 +133,22 @@ reviewed (`studio_cut_review` / `studio_cut_apply` on that part) before the asse
 `studio_beats` and `studio_produce` on the assembly's name. `frames` in the beats are the reductions: a `card`
 gives a counter or list room, a `bubble` shows B-roll behind the speaker. Check on the contact sheet that nothing
 important of the screen recording is hidden under the bubble.
+
+## A long edit: tickets
+
+One session that runs a whole edit outgrows its context. Switch to tickets when the edit is an assembly, has more
+than one format, or the user asks for it: the project's work is already split into tickets (one per step and per
+part, rewritten after each QA).
+
+- Review the split first: `studio_tickets { project, action: "show" }`, then `set` with the corrected list (merge
+  two tickets too small for a session, add a checkpoint where the user wants to judge). `propose` restores the default.
+- Run them with the prompt `/mcp__studio__tickets <project>`: from then on you are the driver, a fresh subagent per
+  ticket (`/mcp__studio__ticket <project> [id]`). The driver stays small: it reads only each subagent's three lines
+  and puts the checkpoint questions to the user; the cut plan and the contact sheets are read by the subagents.
+- Use the script `scripts/ticket-loop.sh <project>` instead, from a terminal in the studio repo, when your client
+  runs no subagents or when even the driver's summaries would grow too long (many parts, many correction rounds):
+  one fresh `claude -p` session per ticket, the checkpoint question asked at the terminal, the loop stopping on a
+  ticket left open. Inside a client session that has subagents, the prompt is the default.
 
 ## A film with no rush
 

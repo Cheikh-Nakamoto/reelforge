@@ -74,6 +74,13 @@
   .ev.ev-tool .msg { color: var(--accent); font-weight: 600; }
   .ev.ev-error .msg { color: var(--err); }
   .ev.ev-step .msg { color: var(--ok); }
+  .ev.ev-ticket .msg { color: var(--violet); font-weight: 600; }
+  .badge.p { background: rgba(244,114,182,.15); color: var(--pink); }
+  .wait { border-color: rgba(244,114,182,.55); background: linear-gradient(0deg, rgba(244,114,182,.06), rgba(244,114,182,.06)), var(--panel); }
+  .wait h3 { color: var(--pink); }
+  tr.tk-next td { background: rgba(56,189,248,.06); }
+  tr.tk-wait td { background: rgba(244,114,182,.08); }
+  .md { white-space: pre-wrap; margin: 6px 0 2px; color: var(--text); font: 13px/1.5 system-ui, sans-serif; }
   .stat { display: inline-block; margin-right: 22px; }
   .stat b { display: block; font-size: 20px; }
   .stat span { color: var(--muted); font-size: 12px; }
@@ -128,7 +135,7 @@ async function refresh() {
   const data = await r.json();
   if (data.error) { $("#main").innerHTML = `<div class="empty">${esc(data.error)}</div>`; return; }
   // Re-render only when something changed (keeps the video playing).
-  const sig = JSON.stringify([data.status.steps, data.events.length, data.renders, data.jobs.map((j) => [j.status, j.log.length])]);
+  const sig = JSON.stringify([data.status.steps, data.events.length, data.renders, data.jobs.map((j) => [j.status, j.log.length]), data.tickets.map((t) => [t.id, t.status, t.sections.length]), data.ticketsError]);
   if (sig === state.sig) return;
   state.sig = sig;
   state.data = data;
@@ -165,14 +172,15 @@ function render() {
       <h2>${esc(d.name)}</h2>
       <div class="meta">style <b>${esc(m.style)}</b>${m.recipe ? ` · recette <b>${esc(m.recipe)}</b>` : ""} · ${esc(m.source)}${dur ? ` · ${dur.toFixed(1)} s` : ""}
         ${warn ? ` · <span class="badge warn">${warn} avertissement(s)</span>` : d.qa ? ` · <span class="badge ok">QA propre</span>` : ""}
+        ${waiting(d) ? ` · <span class="badge p">ticket ${esc(waiting(d).id)} attend ta réponse</span>` : ""}
         ${d.jobs.filter((j) => j.status === "running").map((j) => ` · <span class="badge warn">tâche en cours : ${esc(j.label)}</span>`).join("")}</div>
     </div>
     <div class="steps">${Object.keys(STEP_FR).map((s) => stepSummary(d, s)).join("")}</div>
-    <div class="tabs">${[["montage", "Montage"], ["coupe", "Plan de coupe"], ["motion", "Motion design"], ["journal", `Journal de Claude (${d.events.length})`], ["qa", "QA"], ["tech", "Technique"]]
+    <div class="tabs">${[["montage", "Montage"], ["coupe", "Plan de coupe"], ["motion", "Motion design"], ["journal", `Journal de Claude (${d.events.length})`], ["tickets", `Tickets (${d.tickets.filter((t) => t.status === "fait").length}/${d.tickets.length})`], ["qa", "QA"], ["tech", "Technique"]]
       .map(([k, l]) => `<div class="tab ${state.tab === k ? "on" : ""}" data-t="${k}">${l}</div>`).join("")}</div>
     <div id="pane"></div>`;
   document.querySelectorAll(".tab").forEach((el) => el.onclick = () => { state.tab = el.dataset.t; render(); });
-  ({ montage, coupe, motion, journal, qa, tech })[state.tab](d);
+  ({ montage, coupe, motion, journal, tickets, qa, tech })[state.tab](d);
 }
 
 // ---------- Montage: render + synced multi-lane timeline
@@ -281,14 +289,48 @@ function journal(d) {
   const pane = $("#pane");
   const ev = d.events.filter((e) => state.filter === "all" || e.kind === state.filter);
   pane.innerHTML = `
-    <div class="filters">${[["all", "Tout"], ["tool", "Décisions (appels d'outils)"], ["step", "Étapes"], ["error", "Erreurs"]].map(([k, l]) => `<button class="${state.filter === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}</div>
+    <div class="filters">${[["all", "Tout"], ["tool", "Décisions (appels d'outils)"], ["step", "Étapes"], ["ticket", "Tickets"], ["error", "Erreurs"]].map(([k, l]) => `<button class="${state.filter === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}</div>
     <div class="card">${ev.length ? ev.slice().reverse().map((e) => `
       <div class="ev ev-${e.kind}">
         <div class="time">${new Date(e.t).toLocaleTimeString("fr-FR")}<br><span class="muted">${new Date(e.t).toLocaleDateString("fr-FR")}</span></div>
-        <div><span class="badge ${e.source === "mcp" ? "v" : e.source === "pipeline" ? "ok" : ""}">${e.source === "mcp" ? "Claude" : e.source === "pipeline" ? "étape" : "CLI"}</span></div>
+        <div><span class="badge ${e.kind === "ticket" ? "p" : e.source === "mcp" ? "v" : e.source === "pipeline" ? "ok" : ""}">${e.kind === "ticket" ? "ticket" : e.source === "mcp" ? "Claude" : e.source === "pipeline" ? "étape" : "CLI"}</span></div>
         <div><div class="msg">${esc(e.message)}</div>${e.args ? `<details><summary>arguments</summary><pre>${esc(JSON.stringify(e.args, null, 2))}</pre></details>` : ""}</div>
       </div>`).join("") : `<div class="muted">Rien encore. Les appels de Claude (outils MCP) et les commandes studio s'inscrivent ici.</div>`}</div>`;
   document.querySelectorAll(".filters button").forEach((el) => el.onclick = () => { state.filter = el.dataset.f; journal(d); });
+}
+
+// ---------- Tickets: where the loop is, which checkpoint waits for an answer, what each closed ticket delivered
+const section = (t, h) => t.sections.find((s) => s.heading === h)?.body.trim() ?? "";
+// The loop stops on a checkpoint: the ticket it is on then waits for the person, not for an agent.
+const waiting = (d) => { const t = d.tickets.find((x) => x.id === d.nextTicket); return t?.checkpoint ? t : null; };
+function tickets(d) {
+  const pane = $("#pane");
+  if (d.ticketsError) { pane.innerHTML = `<div class="card"><h3>Tickets illisibles</h3><div class="muted">${esc(d.ticketsError)}</div></div>`; return; }
+  if (!d.tickets.length) { pane.innerHTML = `<div class="empty">Pas de tickets pour ce projet. <code>studio_tickets { action: "propose" }</code> écrit le découpage par défaut.</div>`; return; }
+  const done = new Set(d.tickets.filter((t) => t.status === "fait").map((t) => t.id));
+  const w = waiting(d), next = d.tickets.find((t) => t.id === d.nextTicket);
+  const badgeOf = (t) => t.status === "fait" ? `<span class="badge ok">fait</span>`
+    : t.id === d.nextTicket ? (t.checkpoint ? `<span class="badge p">attend ta réponse</span>` : `<span class="badge a">en cours</span>`)
+    : t.dependsOn.every((x) => done.has(x)) ? `<span class="badge">prêt</span>` : `<span class="badge">attend ${esc(t.dependsOn.filter((x) => !done.has(x)).join(", "))}</span>`;
+  const body = (t) => {
+    const r = section(t, "Résultat"), rp = section(t, "Reprise");
+    return [r && `<details><summary>résultat</summary><div class="md">${esc(r)}</div></details>`,
+      rp && t.status !== "fait" && `<details><summary>reprise</summary><div class="md">${esc(rp)}</div></details>`].filter(Boolean).join("");
+  };
+  pane.innerHTML = `
+    ${w ? `<div class="card wait"><h3>Checkpoint : ticket ${esc(w.id)} attend ta réponse (${esc(w.checkpoint)})</h3><div><b>${esc(w.title)}</b></div>
+      ${section(w, "Contexte") ? `<div class="md muted">${esc(section(w, "Contexte"))}</div>` : ""}
+      ${section(w, "Terminé quand") ? `<details open><summary>terminé quand</summary><div class="md">${esc(section(w, "Terminé quand"))}</div></details>` : ""}</div>`
+    : next ? `<div class="card"><h3>En cours : ticket ${esc(next.id)}</h3><div>${esc(next.title)}</div></div>`
+    : `<div class="card"><h3>${done.size === d.tickets.length ? "Tout est fait." : "Rien de prêt"}</h3></div>`}
+    <div class="card"><h3>Tickets (${done.size}/${d.tickets.length} faits)</h3><table>
+      <tr><th>#</th><th>Ticket</th><th>Statut</th><th>Dépend de</th></tr>
+      ${d.tickets.map((t) => `<tr class="${t.id === d.nextTicket ? (t.checkpoint ? "tk-wait" : "tk-next") : ""}">
+        <td>${esc(t.id)}</td>
+        <td>${esc(t.title)}${t.checkpoint ? ` <span class="badge p">checkpoint ${esc(t.checkpoint)}</span>` : ""}${body(t)}</td>
+        <td>${badgeOf(t)}</td>
+        <td class="muted">${t.dependsOn.length ? esc(t.dependsOn.join(", ")) : "—"}</td></tr>`).join("")}
+    </table></div>`;
 }
 
 // ---------- QA

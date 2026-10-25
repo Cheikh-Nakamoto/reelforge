@@ -7,7 +7,7 @@ const tech = () => {
   const s = loadStyle("tech-explainer");
   return { ...s, mograph: { ...s.mograph, hook: false }, scenes: { ...s.scenes, max: 0 } };
 };
-import { proposeBeats } from "../src/steps/beats.js";
+import { beatsSummary, proposeBeats, type Beats } from "../src/steps/beats.js";
 import type { Word } from "../src/lib/words.js";
 
 const W = (text: string): Word[] => text.split(" ").map((t, i) => ({ id: `w${i}`, text: t, start: i * 0.4, end: i * 0.4 + 0.35 }));
@@ -37,4 +37,17 @@ test("word loudness is judged against the voice around it, not the whole video",
   const s = scoreWords(words, rms);
   assert.ok(s[30].score > 1, `the quiet half's stressed word stands out: ${s[30].score}`);
   assert.ok(s[25].score < 0.5, "an ordinary quiet word does not");
+});
+
+test("the review summary warns of a hand-edited whip under a behind-word", () => {
+  const b: Beats = {
+    duration: 10, captions: [], behind: [{ id: "bh0", text: "2000", start: 2, end: 3.3 }], mographs: [], sfx: [], cuts: [],
+    fx: [{ id: "fx6", kind: "whip", at: 2.8, duration: 0.24 }, { id: "fx7", kind: "whip", at: 6, duration: 0.24 }],
+    frames: [], scenes: [], parts: [], notes: [],
+  };
+  const warned = beatsSummary(b).split("\n").filter((l) => l.includes("⚠"));
+  assert.equal(warned.length, 1, warned.join("\n"));
+  assert.match(warned[0], /fx6 \(whip.*« 2000 ».*flash seul/);
+  const framed = beatsSummary({ ...b, fx: [], frames: [{ id: "fr0", mode: "card", start: 3, end: 5 }] });
+  assert.match(framed, /⚠ Mot derrière « 2000 » dans la réduction de cadre fr0/);
 });
