@@ -37,4 +37,6 @@ First version.
   effect.
 - SFX placed on their measured attack (a whoosh on its peak) and levelled per kind; `--workers` /
   `STUDIO_RENDER_WORKERS` for render machines with more cores.
+- `films/`: hand-made music-only films; `video-intro-funk-v2` (XewXew intro) with its setup, storyboard, seam ledger
+  checked by `seam-gate.mjs`, render and review.
 - PolyForm Noncommercial 1.0.0 licence, commercial licensing through the author, provenance tag and render receipt.

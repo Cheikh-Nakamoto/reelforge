@@ -1,0 +1,201 @@
+{
+  "fps": 30,
+  "seams": [
+    {
+      "id": "fête → savoir (zoom-through)",
+      "cut": 4.55,
+      "technique": "zoom-through",
+      "exit": {
+        "selector": "#hkZoom",
+        "axis": "z",
+        "dir": 1
+      },
+      "entry": {
+        "selector": "#tyZoom",
+        "axis": "z",
+        "dir": 1
+      }
+    },
+    {
+      "id": "savoir → vocaux (waterfall cut)",
+      "cut": 6.795,
+      "technique": "waterfall cut LEFT",
+      "exit": {
+        "selector": "#sy5",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#ph1",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "bulle → logo (object becomes the world)",
+      "cut": 12.407,
+      "technique": "zoom through the bubble",
+      "exit": {
+        "selector": "#q2",
+        "axis": "z",
+        "dir": 1
+      },
+      "entry": {
+        "selector": "#rvIn",
+        "axis": "z",
+        "dir": 1
+      }
+    },
+    {
+      "id": "logo → site (crane up)",
+      "cut": 15.214,
+      "technique": "cut-the-curve UP",
+      "exit": {
+        "selector": "#logo1",
+        "axis": "y",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#rh0",
+        "axis": "y",
+        "dir": -1
+      }
+    },
+    {
+      "id": "site → étape 1",
+      "cut": 19.142,
+      "technique": "waterfall cut LEFT + colour flood",
+      "exit": {
+        "selector": "#rvSub",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#s1w0",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "étape 1 → 2",
+      "cut": 22.51,
+      "technique": "waterfall cut LEFT",
+      "exit": {
+        "selector": "#s1w2",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#s2w0",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "étape 2 → 3",
+      "cut": 26.439,
+      "technique": "waterfall cut LEFT",
+      "exit": {
+        "selector": "#s2w5",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#s3w0",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "invités → réponses",
+      "cut": 34.857,
+      "technique": "waterfall entry LEFT",
+      "exit": {
+        "selector": "#scG5",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#g0w0",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "réponses → totaux",
+      "cut": 37.102,
+      "technique": "waterfall cut LEFT",
+      "exit": {
+        "selector": "#g0sub",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#g1w0",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "totaux → téléphone",
+      "cut": 39.347,
+      "technique": "waterfall cut LEFT + colour flood",
+      "exit": {
+        "selector": "#stB",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#g2w0",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "téléphone → gratuit",
+      "cut": 41.592,
+      "technique": "waterfall cut LEFT + colour flood",
+      "exit": {
+        "selector": "#ch2",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#g3w0",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "gratuit → photos (cut-the-curve)",
+      "cut": 44.398,
+      "technique": "cut-the-curve LEFT",
+      "exit": {
+        "selector": "#phMove",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#enIn",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "photos → carton final (inverse zoom)",
+      "cut": 47.205,
+      "technique": "inverse zoom-through",
+      "exit": {
+        "selector": "#enZoom",
+        "axis": "z",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#finZoom",
+        "axis": "z",
+        "dir": -1,
+        "scanRoot": "#fin"
+      }
+    }
+  ]
+}

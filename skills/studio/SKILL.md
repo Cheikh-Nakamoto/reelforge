@@ -132,6 +132,12 @@ reviewed (`studio_cut_review` / `studio_cut_apply` on that part) before the asse
 gives a counter or list room, a `bubble` shows B-roll behind the speaker. Check on the contact sheet that nothing
 important of the screen recording is hidden under the bubble.
 
+## A film with no rush
+
+Music-only motion design (a product intro on a track, no speaker) skips the pipeline: copy
+`films/video-intro-funk-v2/` and follow its README (setup, measure the track, storyboard, check and seam gate,
+render).
+
 ## Rules
 
 - 100 % local. Do not suggest cloud tools, paid APIs or a local LLM as part of the pipeline.

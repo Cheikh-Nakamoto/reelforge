@@ -19,6 +19,7 @@ src/
 styles/*.yaml           styles, validated by StyleSchema (src/lib/style.ts) → styles/style.schema.json
 test/                   node:test; html/cutplan/style tests need no media, mcp.test.ts needs `npm run build`
 work/<project>/NN-step/ outputs and manifest.json (cache key) of each step — gitignored
+films/<name>/           hand-made films with no rush (music only): setup, storyboard, ledger, render; README per film
 ```
 
 ## Decisions and why
@@ -148,8 +149,10 @@ Motion: the HyperFrames skills, written for a newer CLI than the pinned one (che
   desktop-app steps; media comes from local tools only (decision 17).
 - Overrides: `.drift` is motion-doctrine's *camera with intent*, one monotonic push or pull per take. A
   `cut-the-curve` template is ported from its worker version (`set` a baseline, then `to`). The vector ledger and
-  `seam-gate.mjs` are untested on studio's single-timeline composition: try `seam-gate.mjs probe` on a fixture
-  before relying on them, and meanwhile judge seams on frames.
+  `seam-gate.mjs` work on a single-timeline composition (`films/video-intro-funk-v2`, 2026-10-25): the gate needs
+  `CHROME_PATH` (HyperFrames' chrome-headless-shell) and assumes a 1920×1080 viewport, so in 9:16 pick ledger
+  selectors above y = 1080. Not yet wired into studio's generated compositions (ticket 0008); there, judge seams on
+  frames.
 
 Code: `mattpocock-skills:<name>`.
 - `tdd`: every change to `cutplan.ts`, `beats.ts` or `html.ts`, and every bug fix; the seams are their exported
