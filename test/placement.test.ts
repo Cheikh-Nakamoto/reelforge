@@ -57,3 +57,11 @@ test("a short word slides sideways instead of shrinking behind a centred head", 
   assert.ok(p.ok, JSON.stringify(p));
   assert.ok(p.fs >= 0.8 * 350, `kept its size: ${p.fs}`);
 });
+
+test("hiding the last letter is never readable", () => {
+  // Subject covering the right edge of the frame: a word whose last letter sits there is rejected.
+  const w = 108, h = 192, data = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 80; x < w; x++) data[y * w + x] = 255;
+  const c = coverage({ ...base, masks: [{ w, h, data }], chars: 5, fsMax: 400 }, 600, 400, 640);
+  assert.ok(c.lostEdge, "last letter under the subject");
+});

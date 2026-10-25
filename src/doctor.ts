@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { hyperframes, run } from "./lib/exec.js";
-import { listStyles } from "./lib/style.js";
+import { listStyles, STYLES_DIR } from "./lib/style.js";
 
 export interface Check {
   name: string;
@@ -57,6 +57,23 @@ export async function doctor(): Promise<Check[]> {
     ok: !!chrome,
     detail: chrome?.[1].trim() ?? "not found",
     fix: "npx hyperframes browser ensure (or set HYPERFRAMES_BROWSER_PATH)",
+  });
+
+  const sfx = join(dirname(STYLES_DIR), "assets", "sfx");
+  const kinds = ["whoosh", "pop", "hit", "click", "glitch"].filter((k) => existsSync(join(sfx, k)));
+  checks.push({
+    name: "SFX library (optional)",
+    ok: kinds.length === 4,
+    detail: kinds.length ? kinds.join(", ") : "synthesised effects only",
+    fix: "scripts/fetch-sfx.sh (CC0 sounds from Kenney and OpenGameArt)",
+  });
+
+  const fonts = await run("fc-list", [], { allowFail: true }).catch(() => null);
+  checks.push({
+    name: "Emoji font (captions)",
+    ok: /Noto Color Emoji/.test(fonts?.stdout ?? ""),
+    detail: "Noto Color Emoji",
+    fix: "sudo apt install fonts-noto-color-emoji (styles with captions.emojis need it)",
   });
 
   try {

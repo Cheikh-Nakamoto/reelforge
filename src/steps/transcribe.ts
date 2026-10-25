@@ -1,16 +1,18 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { hyperframes } from "../lib/exec.js";
-import { silencedetect } from "../lib/ffmpeg.js";
+import { findSilences } from "../lib/ffmpeg.js";
 import { cached, Project, readJson, writeJson } from "../lib/project.js";
 import type { Word } from "../lib/words.js";
+import { alignTimings } from "../lib/align.js";
 
-export type Engine = "parakeet" | "whisper";
+export type Engine = "hybrid" | "parakeet" | "whisper";
 
 export interface TranscribeOptions {
   /**
-   * parakeet (default): NVIDIA Parakeet TDT 0.6B v3 via sherpa-onnx, multilingual, word times within ~0.2 s and
-   * 3-4x faster than whisper on CPU. whisper: whisper.cpp, better French spelling but word times off by up to 0.7 s.
+   * hybrid (default): whisper.cpp's words with Parakeet's timings (lib/align.ts). On a noisy real rush Parakeet kept
+   * 38 of 76 words and switched to English mid-sentence; whisper had them all, with edges up to 0.7 s off.
+   * parakeet: fastest, fine on clean audio. whisper: text only quality, loose timings.
    */
   engine?: Engine;
   language?: string;
@@ -25,7 +27,7 @@ export interface TranscribeOptions {
  * and passing --language would silently switch HyperFrames back to whisper.
  */
 export async function transcribe(project: Project, opts: TranscribeOptions = {}) {
-  const engine = opts.engine ?? "parakeet";
+  const engine = opts.engine ?? "hybrid";
   const language = opts.language ?? "fr";
   const model = opts.model ?? "large-v3-turbo";
   const wav = project.path("ingest", "audio16k.wav");
@@ -34,25 +36,35 @@ export async function transcribe(project: Project, opts: TranscribeOptions = {})
 
   const res = await cached(project, "transcribe", {
     inputs: [wav],
-    params: engine === "whisper" ? { engine, language, model } : { engine },
-    version: 2,
+    params: engine === "parakeet" ? { engine } : { engine, language, model },
+    version: 3,
     outputs: [out],
     force: opts.force,
   }, async () => {
-    const args = engine === "whisper"
-      ? ["--engine", "whisper", "--model", model, "--language", language, "--timeout", "1800000"]
-      : ["--engine", "parakeet"];
-    const { stdout } = await hyperframes(["transcribe", wav, "--dir", dir, ...args, "--json"]);
-    const reported = JSON.parse(stdout.trim().split("\n").pop() ?? "{}");
-    if (reported.engine && reported.engine !== engine) {
-      throw new Error(`Asked for ${engine} but HyperFrames ran ${reported.engine}. Install it: npx hyperframes models install parakeet`);
-    }
-    const transcriptPath = findTranscriptPath(stdout) ?? join(dir, "transcript.json");
-    const raw = JSON.parse(readFileSync(transcriptPath, "utf8")) as Word[];
-    const words = await cleanTranscript(raw, wav);
-    writeJson(out, words);
+    const run = async (which: "whisper" | "parakeet") => {
+      const sub = join(dir, which);
+      const args = which === "whisper"
+        ? ["--engine", "whisper", "--model", model, "--language", language, "--timeout", "1800000"]
+        : ["--engine", "parakeet"];
+      const { stdout } = await hyperframes(["transcribe", wav, "--dir", sub, ...args, "--json"]);
+      const reported = JSON.parse(stdout.trim().split("\n").pop() ?? "{}");
+      if (reported.engine && reported.engine !== which) {
+        throw new Error(`Asked for ${which} but HyperFrames ran ${reported.engine}. Install it: npx hyperframes models install parakeet`);
+      }
+      return JSON.parse(readFileSync(findTranscriptPath(stdout) ?? join(sub, "transcript.json"), "utf8")) as Word[];
+    };
+    let raw: Word[];
+    if (engine === "hybrid") {
+      const text = await run("whisper");
+      const timing = await run("parakeet");
+      const aligned = alignTimings(text, timing);
+      writeJson(join(dir, "alignment.json"), { matched: Math.round(aligned.matched * 100) / 100, whisper: text.length, parakeet: timing.length });
+      raw = aligned.words;
+    } else raw = await run(engine);
+    writeJson(out, await cleanTranscript(raw, wav));
   });
-  return { ...res, words: readJson<Word[]>(out), path: out, engine };
+  const alignment = engine === "hybrid" ? readJson<{ matched: number }>(join(dir, "alignment.json")) : null;
+  return { ...res, words: readJson<Word[]>(out), path: out, engine, alignment };
 }
 
 function findTranscriptPath(stdout: string): string | null {
@@ -69,7 +81,7 @@ function findTranscriptPath(stdout: string): string | null {
  * Words "inside" a mid-rush silence are kept: ASR times drift by up to 0.7 s, so such a word is usually real.
  */
 async function cleanTranscript(raw: Word[], wav: string): Promise<Word[]> {
-  const silences = await silencedetect(wav, -35, 0.6);
+  const { silences } = await findSilences(wav, 0.6);
   const tail = silences.find((s) => s.end === Infinity);
   return raw
     .filter((w) => w.text && /[\p{L}\p{N}]/u.test(w.text) && !/[♪�]/.test(w.text))

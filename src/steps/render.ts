@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hyperframes, run } from "../lib/exec.js";
 import { cached, Project, readJson, ROOT, STEPS, writeJson, type StepManifest, codeOf } from "../lib/project.js";
@@ -11,6 +11,12 @@ export interface RenderOptions {
   quality?: "draft" | "standard" | "high";
   force?: boolean;
   onProgress?: (line: string) => void;
+  /**
+   * Chrome capture workers (default: STUDIO_RENDER_WORKERS, else HyperFrames' own choice). Measured on a 4-core CPU
+   * without GPU: 1 worker 134 s of capture for a 17 s short, 2 → 141 s, 3 → 165 s (software raster already fills
+   * the cores, and HyperFrames' auto mode picks 1). Raise it on a bigger render machine. Frames are identical.
+   */
+  workers?: number | "auto";
 }
 
 export const STUDIO_VERSION: string = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
@@ -45,11 +51,20 @@ export async function render(project: Project, opts: RenderOptions = {}) {
     for (const [i, f] of formats.entries()) {
       const dir = join(project.stepDir("compose"), f);
       const picture = project.path("render", `picture_${f}.mp4`);
-      opts.onProgress?.(`render ${f}…`);
-      await hyperframes(["render", "--output", picture, "--quality", quality], {
-        cwd: dir,
-        onStderr: (s) => opts.onProgress?.(s.trim().split("\n").pop() ?? ""),
-      });
+      // The picture depends on the composition only: a new mix (louder SFX, music) re-muxes without re-rendering.
+      const key = pictureKey(dir, quality);
+      const keyFile = project.path("render", `picture_${f}.key`);
+      if (existsSync(picture) && existsSync(keyFile) && readFileSync(keyFile, "utf8") === key) {
+        opts.onProgress?.(`render ${f}: image en cache, nouveau son seulement`);
+      } else {
+        opts.onProgress?.(`render ${f}…`);
+        const workers = opts.workers ?? process.env.STUDIO_RENDER_WORKERS;
+        await hyperframes(["render", "--output", picture, "--quality", quality, ...(workers ? ["--workers", String(workers)] : [])], {
+          cwd: dir,
+          onStderr: (s) => opts.onProgress?.(s.trim().split("\n").pop() ?? ""),
+        });
+        writeFileSync(keyFile, key);
+      }
       await run("ffmpeg", [
         "-v", "error", "-y", "-i", picture, "-i", mix, "-map", "0:v:0", "-map", "1:a:0",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest",
@@ -63,6 +78,30 @@ export async function render(project: Project, opts: RenderOptions = {}) {
 }
 
 const sha1 = (file: string) => createHash("sha1").update(readFileSync(file)).digest("hex");
+
+/**
+ * Identity of a rendered picture: the composition HTML, its assets (size and first/last 256 KB: compose re-copies
+ * them, so dates change while content does not), quality and engine version.
+ */
+export function pictureKey(dir: string, quality: string): string {
+  const h = createHash("sha1").update(readFileSync(join(dir, "index.html"))).update(quality).update(HYPERFRAMES_VERSION);
+  const assets = join(dir, "assets");
+  if (existsSync(assets)) {
+    for (const f of readdirSync(assets).sort()) {
+      const file = join(assets, f);
+      const size = statSync(file).size;
+      h.update(`${f}:${size}`);
+      const fd = openSync(file, "r");
+      const chunk = Buffer.alloc(Math.min(262144, size));
+      readSync(fd, chunk, 0, chunk.length, 0);
+      h.update(chunk);
+      readSync(fd, chunk, 0, chunk.length, Math.max(0, size - chunk.length));
+      h.update(chunk);
+      closeSync(fd);
+    }
+  }
+  return h.digest("hex");
+}
 
 /** What produced these files: tool and model versions, style, parameters and time spent per step. */
 async function receipt(project: Project, outputs: string[], quality: string) {

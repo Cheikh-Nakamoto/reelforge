@@ -6,10 +6,12 @@ import { cached, invalidateFrom, Project, readJson, ROOT, writeJson, codeOf } fr
 import type { Style } from "../lib/style.js";
 import type { Word } from "../lib/words.js";
 import type { CutPlan } from "./cutplan.js";
-import { beatsSummary, BeatsSchema, matteWindowFor, proposeBeats, type Beats } from "./beats.js";
+import { beatsSummary, BeatsSchema, behindWhooshAt, matteWindowFor, proposeBeats, type Beats } from "./beats.js";
 import { buildComposition, computeLayout, FORMATS, type Format } from "./html.js";
 import { alphaMask, assembleSubject, matteWindow, recordWindows, type MatteReport, type MatteWindow } from "./matte.js";
 import type { Mask, Placement } from "./placement.js";
+import type { DeviceSlot } from "./stage.js";
+import { fxBakeFilter } from "./effects.js";
 import { gradeCutout, gradeVideo, grainTexture, lookFilter } from "./look.js";
 
 function loadMatte(project: Project): MatteReport | null {
@@ -33,7 +35,7 @@ export async function proposeCompose(project: Project, style: Style, log: (m: st
     windows.push(w);
     log(`[matte] fenêtre ${s.toFixed(2)}–${e.toFixed(2)} s : ${w.verdict} (${w.seconds}s, oscillation ${w.meanOscillation})`);
     return { ok: w.verdict === "ok", why: w.verdict === "lost" ? "sujet perdu" : w.verdict === "flicker" ? "scintillement" : undefined };
-  }, cutInstants(project));
+  }, cutInstants(project), loadAssembly(project));
   if (windows.length) recordWindows(project, windows);
   const path = project.path("compose", "beats.json");
   writeJson(path, beats);
@@ -41,9 +43,32 @@ export async function proposeCompose(project: Project, style: Style, log: (m: st
   return { beats, summary: beatsSummary(beats), path };
 }
 
+export interface AssemblyLayout {
+  parts: Beats["parts"];
+  frames: Beats["frames"];
+  /** Centres of the transitions between parts (a whoosh goes there). */
+  transitions?: number[];
+}
+
+/** Parts and frame reductions of an assembled video (written by assembly.ts), or none for a single rush. */
+export function loadAssembly(project: Project): AssemblyLayout {
+  const p = project.path("cut", "assembly.json");
+  return existsSync(p) ? readJson<AssemblyLayout>(p) : { parts: [], frames: [], transitions: [] };
+}
+
+/** A B-roll source: another project's cut (or ingested) video, or a file path. */
+export function resolveBroll(src: string): string {
+  const proj = new Project(src);
+  for (const f of [proj.path("cut", "cut.mp4"), proj.path("ingest", "source.mp4")]) if (proj.exists() && existsSync(f)) return f;
+  if (existsSync(src)) return src;
+  throw new Error(`B-roll "${src}" is neither a project with a video nor a file`);
+}
+
 /** Where the rush was cut, on the cut timeline (the start of every kept segment after the first). */
 function cutInstants(project: Project): number[] {
   const plan = readJson<CutPlan>(project.path("cut", "cutplan.json"));
+  // An assembly's segments already sit on the joined timeline (and overlap at transitions): read their starts.
+  if (project.meta.assembly) return plan.keep.slice(1).map((s) => s.start);
   const out: number[] = [];
   let t = 0;
   plan.keep.forEach((s, i) => {
@@ -65,9 +90,24 @@ async function ensureCutout(project: Project, beats: Beats) {
     if (w.verdict === "ok") kept.push(b);
     else notes.push(`Mot derrière « ${b.text} » (${b.start.toFixed(1)} s) retiré : détourage ${w.verdict === "lost" ? "perdu" : "instable"}.`);
   }
+  // A colour pop needs the subject matted over its whole window, or the subject would turn grey with the world.
+  const fx: Beats["fx"] = [];
+  for (const f of beats.fx) {
+    if (f.kind !== "colorPop") {
+      fx.push(f);
+      continue;
+    }
+    const inBehind = kept.some((b) => b.start <= f.at + 0.01 && b.end >= f.at + f.duration - 0.01);
+    const mw = matteWindowFor({ start: f.at, end: f.at + f.duration });
+    const w = inBehind ? null : await matteWindow(project, mw.start, mw.end);
+    if (w) windows.push(w);
+    if (inBehind || w?.verdict === "ok") fx.push(f);
+    else notes.push(`Colour pop à ${f.at.toFixed(1)} s retiré : détourage ${w?.verdict === "lost" ? "perdu" : "instable"}.`);
+  }
   if (windows.length) recordWindows(project, windows);
-  const subject = kept.length ? await assembleSubject(project, windows) : null;
-  return { behind: kept, subject, notes };
+  const needsCutout = kept.length || fx.some((f) => f.kind === "colorPop");
+  const subject = needsCutout ? await assembleSubject(project, windows) : null;
+  return { behind: kept, fx, subject, notes };
 }
 
 /** Replace beats.json with an edited version (validated), e.g. from the reviewing LLM. */
@@ -82,7 +122,7 @@ export interface ComposeCheck {
   format: Format["id"];
   dir: string;
   lint: { ok: boolean; output: string };
-  check: { ok: boolean; errors: number; warnings: number; output: string };
+  check: { ok: boolean; errors: number; warnings: number; output: string; incomplete?: boolean };
 }
 
 /** Write one HyperFrames project per format, then lint and check each. */
@@ -99,16 +139,18 @@ export async function applyCompose(
   const dirs = formats.map((f) => join(project.stepDir("compose"), f));
 
   await cached(project, "compose", {
-    code: codeOf(import.meta.url, "./beats.js", "./html.js", "./placement.js", "./look.js"),
+    code: codeOf(import.meta.url, "./beats.js", "./html.js", "./placement.js", "./look.js", "./effects.js", "./stage.js", "./contextual.js"),
     inputs: [cut, beatsPath],
     params: { formats, style, check: opts.check !== false },
     version: 6,
-    outputs: [report, ...dirs.map((d) => join(d, "index.html"))],
+    outputs: [report, project.path("compose", "final-beats.json"), ...dirs.map((d) => join(d, "index.html"))],
     force: opts.force,
   }, async () => {
     const beats = BeatsSchema.parse(readJson<Beats>(beatsPath));
-    const cutout = beats.behind.length ? await ensureCutout(project, beats) : { behind: [], subject: null, notes: [] };
+    const needsMatte = beats.behind.length || beats.fx.some((f) => f.kind === "colorPop");
+    const cutout = needsMatte ? await ensureCutout(project, beats) : { behind: [], fx: beats.fx, subject: null, notes: [] };
     beats.behind = cutout.behind;
+    beats.fx = cutout.fx;
     const subject = cutout.subject;
     const hasCutout = !!subject;
     const matte = loadMatte(project);
@@ -126,6 +168,8 @@ export async function applyCompose(
       }
     }
     const placements: Record<string, Record<string, Placement>> = {};
+    // Behind-words dropped in every format lose their sound too (final-beats.json feeds the audio step).
+    const keptBehind = new Set<string>();
     // Bake the style's look once into the footage and the cutout, with the same filter chain.
     let footage = cut;
     let cutoutFile = subject;
@@ -137,6 +181,16 @@ export async function applyCompose(
         cutoutFile = project.path("compose", "graded-subject.webm");
         await gradeCutout(subject, cutoutFile, look);
       }
+    }
+    // RGB splits and glitches are drawn into the footage here, inside their windows only (see fxBakeFilter).
+    const bake = fxBakeFilter(beats.fx, src.width, src.height, style.effects.intensity);
+    if (bake) {
+      const baked = project.path("compose", "fx.mp4");
+      await run("ffmpeg", [
+        "-v", "error", "-y", "-i", footage, "-filter_complex", bake, "-map", "[fx]", "-an",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "16", baked,
+      ]);
+      footage = baked;
     }
     const results: ComposeCheck[] = [];
     for (const fid of formats) {
@@ -150,17 +204,55 @@ export async function applyCompose(
       const layout = computeLayout(src, f, matte?.centerX ?? 0.5);
       if (layout.mode === "pillar") await blurredBackground(footage, join(assets, "bg.mp4"), f);
       if (style.look.grain > 0) await grainTexture(join(assets, "grain.png"));
-      writeJson(join(dir, "hyperframes.json"), { paths: { blocks: "compositions", components: "compositions/components", assets: "assets" }, media: { autoProxy: true } });
-      const comp = buildComposition({ beats, style, format: f, src, matte, hasCutout, masks });
-      placements[fid] = comp.placements;
-      for (const [id, p] of Object.entries(comp.placements)) {
-        if (p.ok) continue;
-        const word = beats.behind.find((b) => b.id === id)?.text;
-        cutout.notes.push(`${fid}: « ${word} » mal placé derrière le sujet (couvert à ${Math.round(p.coverage * 100)} %, pire image ${Math.round(p.worst * 100)} %).`);
+      for (const [i, fr] of beats.frames.entries()) if (fr.broll) linkOrCopy(resolveBroll(fr.broll.src), join(assets, `broll-${i}.mp4`));
+      if (style.motion.blur) copyFileSync(join(ROOT, "templates", "vendor", "motion-blur.js"), join(assets, "motion-blur.js"));
+      // Screen recordings in a 3D phone: each screen part (its own cut video) and each B-roll under a bubble.
+      const devices: DeviceSlot[] = [];
+      if (style.frame.device) {
+        beats.parts.forEach((p, i) => {
+          if (p.kind !== "screen") return;
+          linkOrCopy(resolveBroll(p.name), join(assets, `part-${i}.mp4`));
+          devices.push({ src: `assets/part-${i}.mp4`, start: p.start, end: p.end, from: 0, role: "screen" });
+        });
+        beats.frames.forEach((fr, i) => {
+          if (fr.broll) devices.push({ src: `assets/broll-${i}.mp4`, start: fr.start, end: fr.end, from: fr.broll.from, role: "broll" });
+        });
       }
+      if (subject && beats.fx.some((f) => f.kind === "colorPop")) await blackAndWhite(footage, join(assets, "bw.mp4"));
+      writeJson(join(dir, "hyperframes.json"), { paths: { blocks: "compositions", components: "compositions/components", assets: "assets" }, media: { autoProxy: true } });
+      let comp = buildComposition({ beats, style, format: f, src, matte, hasCutout, masks, devices });
+      // A word with no readable place (too small, an end letter hidden…) is dropped, not shipped badly.
+      const bad = Object.entries(comp.placements).filter(([, p]) => !p.ok).map(([id]) => id);
+      if (bad.length) {
+        for (const id of bad) {
+          const b = beats.behind.find((x) => x.id === id);
+          const p = comp.placements[id];
+          cutout.notes.push(
+            `${fid}: mot derrière « ${b?.text} » retiré — pas de place lisible derrière le sujet ` +
+              `(au mieux ${Math.round(p.fs / f.height * 100)} % de la hauteur, ${p.lostLetters} lettre(s) cachée(s)). Plan trop serré ?`,
+          );
+        }
+        const dropped = beats.behind.filter((b) => bad.includes(b.id));
+        // Its colour pop goes too: without the cutout the speaker would turn grey with the world.
+        const fewer = {
+          ...beats,
+          behind: beats.behind.filter((b) => !bad.includes(b.id)),
+          fx: beats.fx.filter((x) => x.kind !== "colorPop" || !dropped.some((b) => Math.abs(b.start - x.at) < 0.05)),
+        };
+        comp = buildComposition({ beats: fewer, style, format: f, src, matte, hasCutout, masks, devices });
+      }
+      placements[fid] = comp.placements;
+      for (const b of beats.behind) if (!bad.includes(b.id)) keptBehind.add(b.id);
       writeFileSync(join(dir, "index.html"), comp.html);
-      results.push(opts.check === false ? skipped(fid, dir) : await lintAndCheck(fid, dir));
+      results.push(opts.check === false ? skipped(fid, dir) : await lintAndCheck(fid, dir, src.duration));
     }
+    const gone = beats.behind.filter((b) => !keptBehind.has(b.id));
+    writeJson(project.path("compose", "final-beats.json"), {
+      ...beats,
+      behind: beats.behind.filter((b) => keptBehind.has(b.id)),
+      sfx: beats.sfx.filter((x) => !(x.kind === "whoosh" && gone.some((b) => Math.abs(behindWhooshAt(b.start) - x.at) < 0.06))),
+      fx: beats.fx.filter((x) => !gone.some((b) => Math.abs(b.start - x.at) < 0.06)),
+    });
     writeJson(report, {
       results,
       notes: cutout.notes,
@@ -176,6 +268,14 @@ export async function applyCompose(
 /** The step cache decides when to rebuild, so assets are always refreshed here. */
 function linkOrCopy(from: string, to: string) {
   copyFileSync(from, to);
+}
+
+/** Contrasted black-and-white copy of the footage for the colour pop (shown under the cutout). */
+async function blackAndWhite(src: string, out: string) {
+  await run("ffmpeg", [
+    "-v", "error", "-y", "-i", src, "-an", "-vf", "hue=s=0,eq=contrast=1.12:brightness=-0.02,format=yuv420p",
+    "-c:v", "libx264", "-preset", "fast", "-crf", "18", out,
+  ]);
 }
 
 /** Full-frame blurred, darkened copy of the footage behind a pillar layout. */
@@ -194,10 +294,13 @@ function skipped(format: Format["id"], dir: string): ComposeCheck {
 
 const SECTIONS = ["lint", "runtime", "layout", "motion", "contrast", "craft"] as const;
 
-async function lintAndCheck(format: Format["id"], dir: string): Promise<ComposeCheck> {
+async function lintAndCheck(format: Format["id"], dir: string, duration: number): Promise<ComposeCheck> {
   const lint = await hyperframes(["lint"], { cwd: dir, allowFail: true });
-  const check = await hyperframes(["check", "--json"], { cwd: dir, allowFail: true });
+  // check has a fixed 120 s budget once Chrome is up; a long, dense composition gets fewer samples to fit in it.
+  const samples = duration > 40 ? 5 : 9;
+  const check = await hyperframes(["check", "--json", "--samples", String(samples)], { cwd: dir, allowFail: true });
   let errors = 0, warnings = 0;
+  let incomplete = false;
   const findings: string[] = [];
   try {
     // A single pretty-printed report: { ok, lint, runtime, layout, motion, contrast, craft } sections with counts.
@@ -208,6 +311,13 @@ async function lintAndCheck(format: Format["id"], dir: string): Promise<ComposeC
       errors += s.errorCount ?? 0;
       warnings += s.warningCount ?? 0;
       for (const f of s.findings ?? []) {
+        // Running out of check's time budget says nothing about the composition: reported, not counted as an error.
+        if (f.code === "check_runtime_failure") {
+          incomplete = true;
+          errors -= f.severity === "error" ? 1 : 0;
+          findings.push(`[check incomplet] ${f.message ?? ""}`.trim());
+          continue;
+        }
         if (f.severity === "error" || f.severity === "warning") {
           findings.push(`[${key}/${f.severity}] ${f.code ?? f.rule ?? ""} ${f.message ?? ""}`.trim());
         }
@@ -220,6 +330,9 @@ async function lintAndCheck(format: Format["id"], dir: string): Promise<ComposeC
     format,
     dir,
     lint: { ok: lint.code === 0, output: (lint.stdout + lint.stderr).trim().slice(-3000) },
-    check: { ok: check.code === 0 && errors === 0, errors, warnings, output: findings.slice(0, 40).join("\n") || check.stderr.trim().slice(-2000) },
+    check: {
+      ok: errors === 0 && (check.code === 0 || incomplete), errors, warnings, incomplete,
+      output: findings.slice(0, 40).join("\n") || check.stderr.trim().slice(-2000),
+    },
   };
 }

@@ -32,7 +32,8 @@ export const FILLERS = new Set([
 /** Phrases that announce a retake: the take they sit in is dropped. Normalized, space separated. */
 export const RESTART_MARKERS = [
   "je recommence", "on recommence", "je reprends", "on reprend", "je la refais", "on la refait", "je refais",
-  "on refait", "attends je", "non attends", "attends attends", "pardon je", "coupe", "on coupe", "recommencons",
+  // No single words here: "coupe" alone matched "ça a coupé" in a real rush and dropped 9 s of good speech.
+  "on refait", "attends je", "non attends", "attends attends", "pardon je", "on coupe", "je coupe", "recommencons",
   "reprenons", "je redis", "je me suis trompe",
 ];
 

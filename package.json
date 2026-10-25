@@ -39,6 +39,7 @@
   "files": [
     "dist",
     "styles",
+    "recipes",
     "templates",
     "skills",
     "LICENSE",

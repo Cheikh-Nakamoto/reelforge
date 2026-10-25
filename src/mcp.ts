@@ -8,12 +8,17 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { doctor, formatChecks } from "./doctor.js";
+import { startDashboard } from "./dashboard.js";
+import { listRecipes, loadQuestionnaire, recipeFromReference, resolve as resolveRecipe, saveRecipe } from "./recipes.js";
+import { analyzeReference, cachedReference, overridesFrom } from "./reference.js";
+import { AssemblySchema, buildAssembly } from "./assembly.js";
 import { getJob, projectJobs, startJob, type Job } from "./jobs.js";
+import { logEvent, summarizeArgs } from "./events.js";
 import { continuePipeline, createProject, listProjects, openProject, status } from "./pipeline.js";
 import { Project, readJson } from "./lib/project.js";
 import { listStyles } from "./lib/style.js";
 import { applyCompose, proposeCompose, setBeats } from "./steps/compose.js";
-import { applyCut, proposeCut } from "./steps/cut.js";
+import { applyCut, fixWords, proposeCut } from "./steps/cut.js";
 import type { CutPlan } from "./steps/cutplan.js";
 import { matteSurvey } from "./steps/matte.js";
 import { audio } from "./steps/audio.js";
@@ -28,11 +33,27 @@ const json = (o: unknown) => text(JSON.stringify(o, null, 2));
 const image = (path: string): Content => ({ type: "image", data: readFileSync(path).toString("base64"), mimeType: "image/png" });
 
 /** Wrap a handler so errors come back as tool errors the LLM can read, not protocol failures. */
-function safe<A>(fn: (a: A) => Promise<{ content: Content[] }>) {
+const QUIET = new Set(["studio_status", "studio_list_styles", "studio_list_projects", "studio_doctor", "studio_recipes", "studio_questionnaire"]);
+
+/** The project a tool call is about, for the journal. */
+function projectOf(a: unknown): string | undefined {
+  const x = (a ?? {}) as Record<string, any>;
+  return x.project ?? x.spec?.name ?? x.name ?? (typeof x.source === "string" ? Project.nameFromSource(x.source) : undefined);
+}
+
+/**
+ * Wrap a handler so errors come back as tool errors the LLM can read, not protocol failures, and so every call lands
+ * in the project's journal (what the agent did, with which arguments) for the dashboard.
+ */
+function safe<A>(tool: string, fn: (a: A) => Promise<{ content: Content[] }>) {
   return async (a: A) => {
+    const project = projectOf(a);
+    // Polling (studio_status every few seconds) is not a decision: it stays out of the journal.
+    if (project && !QUIET.has(tool)) logEvent(project, { kind: "tool", source: "mcp", tool, args: summarizeArgs(a), message: tool });
     try {
       return await fn(a);
     } catch (e) {
+      if (project) logEvent(project, { kind: "error", source: "mcp", tool, message: (e as Error).message });
       return { content: [{ type: "text" as const, text: `Erreur : ${(e as Error).message}` }], isError: true };
     }
   };
@@ -45,15 +66,22 @@ const Formats = z.array(z.enum(["16x9", "9x16"])).optional().describe("Output fo
 
 server.registerTool("studio_list_styles", {
   description: "List the editing styles (styles/*.yaml): fonts, colours, rhythm, animation types.",
-}, safe(async () => json(listStyles())));
+}, safe("studio_list_styles", async () => json(listStyles())));
 
 server.registerTool("studio_doctor", {
   description: "Check the local toolchain (Node, FFmpeg, Parakeet, whisper.cpp, matting weights, Chrome, styles) and say how to fix what is missing.",
-}, safe(async () => text(formatChecks(await doctor()))));
+}, safe("studio_doctor", async () => text(formatChecks(await doctor()))));
+
+server.registerTool("studio_dashboard", {
+  description:
+    "Start (once) the local dashboard and return its URL: every project's steps, cut plan, motion plan on a timeline " +
+    "synced with the render, your tool calls (the journal), QA sheets and versions. Give the URL to the user.",
+  inputSchema: { port: z.number().int().optional() },
+}, safe("studio_dashboard", async (a) => text(`Tableau de bord : ${await startDashboard(a.port ?? 4600)}`)));
 
 server.registerTool("studio_list_projects", {
   description: "List projects in work/.",
-}, safe(async () => json(listProjects())));
+}, safe("studio_list_projects", async () => json(listProjects())));
 
 server.registerTool("studio_create_project", {
   description:
@@ -61,29 +89,41 @@ server.registerTool("studio_create_project", {
     "(Parakeet or whisper.cpp, local). Runs as a background job. Poll studio_status.",
   inputSchema: {
     source: z.string().describe("Path to the rush (mp4/mov/mkv)"),
-    style: z.string().describe("Style name, see studio_list_styles"),
+    style: z.string().optional().describe("Style name (studio_list_styles); not needed with a recipe"),
+    recipe: z.string().optional().describe("Recipe name (studio_recipes); sets style, overrides and formats"),
+    answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional()
+      .describe("Questionnaire answers (studio_questionnaire): question id → option label(s); picks and adjusts a recipe"),
     name: z.string().optional().describe("Project name, default derived from the file name"),
-    engine: z.enum(["parakeet", "whisper"]).optional().describe(
-      "ASR: parakeet (default; accurate word times, fast) or whisper (better French spelling, word times drift up to 0.7 s)",
+    engine: z.enum(["hybrid", "parakeet", "whisper"]).optional().describe(
+      "ASR: hybrid (default: whisper's words, Parakeet's word times), parakeet (fast, loses words on noisy audio), whisper",
     ),
     language: z.string().optional().describe("Whisper only: spoken language ISO code, default fr"),
     model: z.string().optional().describe("Whisper only: whisper.cpp model, default large-v3-turbo"),
+    like: z.string().optional().describe(
+      "A reference video to edit like (see studio_reference): its measured cut rhythm, effects and look go over the style",
+    ),
   },
-}, safe(async (a) => {
+}, safe("studio_create_project", async (a) => {
   const name = a.name ?? Project.nameFromSource(a.source);
+  const r = a.recipe || a.answers ? resolveRecipe(a.answers ?? {}, a.recipe) : null;
+  const styleName = r?.style ?? a.style;
+  if (!styleName) throw new Error("Give a style, a recipe or questionnaire answers");
   const job = startJob(name, "create", async (log) => {
-    await createProject(a.source, a.style, { name, engine: a.engine, language: a.language, model: a.model, log });
+    await createProject(a.source, styleName, {
+      name, engine: a.engine ?? r?.recipe.engine, language: a.language, model: a.model, log,
+      overrides: r?.overrides, recipe: r?.recipe.name, formats: r?.formats, like: a.like ?? r?.recipe.like,
+    });
     const p = await proposeCut(openProject(name).project, openProject(name).style);
     log(`[cut] plan proposé : ${p.plan.sourceDuration}s → ${p.plan.keptDuration}s`);
     return { project: name, next: "studio_cut_review" };
   });
-  return json({ project: name, ...jobView(job), next: "Poll studio_status, then studio_cut_review." });
+  return json({ project: name, ...jobView(job), brief: r?.prompt, next: "Poll studio_status, then studio_cut_review. Follow the brief." });
 }));
 
 server.registerTool("studio_status", {
   description: "Project state: which steps are cached, the cut plan status, and the latest background jobs with their logs.",
   inputSchema: { project: ProjectArg, job: z.string().optional().describe("A job id to inspect") },
-}, safe(async (a) => {
+}, safe("studio_status", async (a) => {
   if (a.job) {
     const j = getJob(a.job);
     if (!j) throw new Error(`Unknown job ${a.job}`);
@@ -111,7 +151,7 @@ server.registerTool("studio_cut_review", {
     keep: z.number().optional().describe("Breath kept on each side of a tightened pause (s)"),
     words: z.boolean().optional().describe("Also return the word list with ids and times (for precise edits)"),
   },
-}, safe(async (a) => {
+}, safe("studio_cut_review", async (a) => {
   const { project, style } = openProject(a.project);
   const edited = a.remove || a.restore || a.minPause !== undefined || a.keep !== undefined;
   let md: string;
@@ -125,10 +165,18 @@ server.registerTool("studio_cut_review", {
   return { content: out };
 }));
 
+server.registerTool("studio_fix_words", {
+  description:
+    "Fix misheard words in a project's transcript once: brand names, URLs, names (e.g. {\"khemrafa.clic\": \"xewxew.click\"}). " +
+    "Captions and contextual graphics (URL bar…) then use the right spelling. For an assembly, fix the part project; " +
+    "the assembly picks it up when rebuilt.",
+  inputSchema: { project: ProjectArg, replace: z.record(z.string(), z.string()).describe("misheard → correct") },
+}, safe("studio_fix_words", async (a) => json(fixWords(openProject(a.project).project, a.replace))));
+
 server.registerTool("studio_cut_apply", {
   description: "Approve the cut plan and render cut.mp4 (frame-accurate, 12 ms audio fades). Then run studio_produce.",
   inputSchema: { project: ProjectArg },
-}, safe(async (a) => {
+}, safe("studio_cut_apply", async (a) => {
   const { project } = openProject(a.project);
   const r = await applyCut(project);
   return json({ cutVideo: r.video, words: r.words.length, cached: r.cached, next: "studio_produce" });
@@ -145,7 +193,7 @@ server.registerTool("studio_produce", {
     quality: z.enum(["draft", "standard", "high"]).optional(),
     repropose: z.boolean().optional().describe("Recompute beats even if beats.json exists (drops edits)"),
   },
-}, safe(async (a) => {
+}, safe("studio_produce", async (a) => {
   const { project, style } = openProject(a.project);
   const job = startJob(a.project, "produce", (log) => continuePipeline(project, style, { formats: a.formats, quality: a.quality, repropose: a.repropose, log }));
   return json(jobView(job));
@@ -162,7 +210,7 @@ server.registerTool("studio_beats", {
     action: z.enum(["propose", "show", "set"]),
     beats: z.any().optional().describe("For action=set: the full beats object as returned by show"),
   },
-}, safe(async (a) => {
+}, safe("studio_beats", async (a) => {
   const { project, style } = openProject(a.project);
   if (a.action === "propose") {
     const job = startJob(a.project, "beats", async (log) => {
@@ -175,10 +223,140 @@ server.registerTool("studio_beats", {
   return json(readJson(project.path("compose", "beats.json")));
 }));
 
+server.registerTool("studio_assemble", {
+  description:
+    "Edit several rushes as ONE video. `spec`: { name, style, parts: [{ project | source, kind?: face|screen, " +
+    "reduce?: { mode: bubble|card, broll?: <part project or file>, from?, start?, end? } }], transitions?, " +
+    "overrides?: <style overrides>, like?: <reference video to edit like, see studio_reference> }. Example: a face-cam " +
+    "intro, then an explanation whose speaker shrinks into a bubble over the screen recording (reduce.broll), then the " +
+    "screen recording itself. Background job: prepares each part; while a part's cut plan is unreviewed it stops and " +
+    "lists them (review each with studio_cut_review / studio_cut_apply, then call again). Once assembled, continue " +
+    "with studio_beats then studio_produce on project = spec.name.",
+  inputSchema: { spec: z.any().describe("The assembly spec object (see description)") },
+}, safe("studio_assemble", async (a) => {
+  const spec = AssemblySchema.parse(a.spec);
+  const job = startJob(spec.name, "assemble", (log) => buildAssembly(spec, { log }));
+  return json(jobView(job));
+}));
+
+server.registerTool("studio_questionnaire", {
+  description:
+    "The questions that decide what kind of video to make (type, platform, tone, captions, rhythm, footage, extras), " +
+    "with their options. Ask them to the user (one screen, multiple choice), then pass the answers to " +
+    "studio_create_project { answers } or studio_recipe_preview.",
+}, safe("studio_questionnaire", async () => json(loadQuestionnaire())));
+
+server.registerTool("studio_recipes", {
+  description: "Saved recipes: a validated way of editing a kind of video (brief, style, overrides, formats, structure).",
+}, safe("studio_recipes", async () => json(listRecipes().map((r) => ({ name: r.name, title: r.title, description: r.description, style: r.style, formats: r.formats, structure: r.structure })))));
+
+server.registerTool("studio_recipe_preview", {
+  description: "What a recipe and/or questionnaire answers resolve to: style, overrides, formats and the editing brief to follow.",
+  inputSchema: {
+    recipe: z.string().optional(),
+    answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
+  },
+}, safe("studio_recipe_preview", async (a) => {
+  const r = resolveRecipe(a.answers ?? {}, a.recipe);
+  return json({ recipe: r.recipe.name, style: r.style, overrides: r.overrides, formats: r.formats, brief: r.prompt });
+}));
+
+server.registerTool("studio_reference", {
+  description:
+    "Measure a reference video the user wants to edit like (a reel they admire): cuts per second, white flashes, " +
+    "strobes, zoom punches, jump-zoom ladders, shakes, whip pans, and its look (brightness, saturation, contrast, " +
+    "letterbox). Returns the style overrides that reproduce its energy, the reasons, and one frame per shot. Local " +
+    "pixel analysis, no model, no upload. Captions are not measured: look at the frames and pick captions.look " +
+    "(bold, pill, editorial, minimal) yourself. Then pass `like` to studio_create_project (or `like` in an assembly " +
+    "spec), or `saveRecipe` to keep it as a recipe. The first read runs as a job (poll studio_status with " +
+    "project \"_references\" and the job id, then call again).",
+  inputSchema: {
+    file: z.string().describe("Path to the reference video"),
+    saveRecipe: z.object({
+      name: z.string().regex(/^[a-z0-9-]+$/), style: z.string().describe("Base style the overrides apply to"),
+      title: z.string().optional(), description: z.string().optional(),
+    }).optional(),
+  },
+}, safe("studio_reference", async (a) => {
+  const ref = cachedReference(a.file);
+  if (!ref) {
+    const job = startJob("_references", `reference ${a.file}`, async (log) => {
+      await analyzeReference(a.file, log);
+      if (a.saveRecipe) await recipeFromReference(a.file, a.saveRecipe.name, a.saveRecipe.style, { ...a.saveRecipe, log });
+      return { next: "studio_reference again" };
+    });
+    return json({ ...jobView(job), next: "Poll studio_status { project: \"_references\", job }, then call studio_reference again." });
+  }
+  const { overrides, why } = overridesFrom(ref);
+  const saved = a.saveRecipe ? await recipeFromReference(a.file, a.saveRecipe.name, a.saveRecipe.style, a.saveRecipe) : null;
+  const summary = [...why.map((w) => `- ${w}`), "", JSON.stringify({ per10s: ref.per10s, look: ref.look, events: ref.events, overrides,
+    ...(saved ? { recipe: `recipes/${saved.name}.yaml` } : {}) }, null, 2)].join("\n");
+  return { content: [...text(summary).content, { type: "image", data: readFileSync(ref.sheet).toString("base64"), mimeType: "image/jpeg" }] };
+}));
+
+server.registerTool("studio_recipe_save", {
+  description:
+    "Save a project the user validated as a reusable recipe (recipes/<name>.yaml): its style and overrides, formats, " +
+    "structure, and a brief. Write the brief from what the user liked and asked to change, as instructions for the " +
+    "next edit. It then appears in studio_recipes and as an MCP prompt.",
+  inputSchema: {
+    project: ProjectArg,
+    name: z.string().regex(/^[a-z0-9-]+$/).describe("recipe file name, lowercase-dashes"),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    prompt: z.string().optional().describe("The editing brief; a draft is written from the project when omitted"),
+  },
+}, safe("studio_recipe_save", async (a) => json(saveRecipe(a.project, a.name, { title: a.title, description: a.description, prompt: a.prompt }))));
+
+// Every recipe is also an MCP prompt: a client lists them as selectable commands (Claude Code: /mcp__studio__<name>).
+for (const r of listRecipes()) {
+  server.registerPrompt(r.name, {
+    title: r.title,
+    description: `${r.description} (style ${r.style}, ${r.formats.join(" + ")})`,
+    argsSchema: {
+      rushes: z.string().describe("Rush path(s), comma separated"),
+      notes: z.string().optional().describe("Anything specific for this video"),
+    },
+  }, ({ rushes, notes }) => ({
+    messages: [{
+      role: "user" as const,
+      content: {
+        type: "text" as const,
+        text: [
+          `Monte ${rushes} avec la recette « ${r.title} » de studio (outil studio_create_project avec recipe: "${r.name}"` +
+            `${r.structure ? ", ou studio_assemble pour plusieurs rushs" : ""}).`,
+          r.structure ? `Structure attendue : ${r.structure}.` : "",
+          "",
+          r.prompt,
+          notes ? `\nPour cette vidéo : ${notes}` : "",
+          "",
+          "Suis le skill studio : relecture du plan de coupe, relecture des beats, puis QA sur les planches contact.",
+        ].filter((l) => l !== undefined).join("\n"),
+      },
+    }],
+  }));
+}
+
+server.registerPrompt("questionnaire", {
+  title: "Nouvelle vidéo (questionnaire)",
+  description: "Pose le questionnaire studio pour choisir le type de montage, puis lance-le.",
+  argsSchema: { rushes: z.string().describe("Rush path(s), comma separated") },
+}, ({ rushes }) => ({
+  messages: [{
+    role: "user" as const,
+    content: {
+      type: "text" as const,
+      text: `Je veux monter ${rushes} avec studio. Appelle studio_questionnaire, pose-moi les questions en une fois ` +
+        "(choix multiples), montre-moi ce que mes réponses donnent avec studio_recipe_preview, puis lance le montage " +
+        "(studio_create_project avec answers, ou studio_assemble pour plusieurs rushs) en suivant le brief.",
+    },
+  }],
+}));
+
 server.registerTool("studio_step", {
   description: "Re-run one late step in the background (compose | audio | render | qa), e.g. after editing beats or a style.",
   inputSchema: { project: ProjectArg, step: z.enum(["compose", "audio", "render", "qa"]), formats: Formats, force: z.boolean().optional() },
-}, safe(async (a) => {
+}, safe("studio_step", async (a) => {
   const { project, style } = openProject(a.project);
   const job = startJob(a.project, a.step, async (log) => {
     const formats = a.formats;
@@ -196,7 +374,7 @@ server.registerTool("studio_qa", {
     "inspect, loudness (target -16 LUFS), duration, and warnings (unstable matte, lint/check). Look at every sheet: " +
     "captions legible and off the face, behind-words partly hidden by the head, graphics clear of the subject.",
   inputSchema: { project: ProjectArg, mattePreview: z.boolean().optional().describe("Also return the cutout preview over magenta") },
-}, safe(async (a) => {
+}, safe("studio_qa", async (a) => {
   const { project } = openProject(a.project);
   const r = readJson<Awaited<ReturnType<typeof qa>>>(project.path("qa", "qa.json"));
   const content: Content[] = [{ type: "text", text: JSON.stringify({ files: r.files, warnings: r.warnings }, null, 2) }];

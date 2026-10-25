@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.js";
 import { ffprobe, measureLoudness } from "../lib/ffmpeg.js";
+import { kindLevels, measureSfx, sfxCatalog } from "../lib/sfx.js";
 import { cached, Project, readJson, ROOT, writeJson, codeOf } from "../lib/project.js";
 import type { Style } from "../lib/style.js";
 import type { Beats } from "./beats.js";
@@ -25,6 +26,16 @@ const SYNTH: Record<Beats["sfx"][number]["kind"], { d: number; src: string; af: 
     src: "aevalsrc='0.8*sin(2*PI*(500+1100*exp(-t*45))*t)*exp(-t*28)':d=0.16",
     af: "highpass=f=200",
   },
+  click: {
+    d: 0.05,
+    src: "aevalsrc='0.7*sin(2*PI*2400*t)*exp(-t*160)':d=0.05",
+    af: "highpass=f=800",
+  },
+  glitch: {
+    d: 0.35,
+    src: "aevalsrc='0.6*sin(2*PI*(220+1800*gt(mod(t*40,1),0.5))*t)*lt(mod(t*13,1),0.7)':d=0.35",
+    af: "highpass=f=300,afade=t=out:st=0.28:d=0.07",
+  },
   hit: {
     d: 0.45,
     src: "aevalsrc='0.9*sin(2*PI*(48+140*exp(-t*22))*t)*exp(-t*8)+0.15*(random(0)-0.5)*exp(-t*60)':d=0.45",
@@ -32,7 +43,20 @@ const SYNTH: Record<Beats["sfx"][number]["kind"], { d: number; src: string; af: 
   },
 };
 
-async function sfxFile(kind: keyof typeof SYNTH, cacheDir: string): Promise<{ path: string; source: string }> {
+/**
+ * The sound for a cue: from the library in assets/sfx/<kind>/ (scripts/fetch-sfx.sh, CC0), rotating through its files
+ * by cue number so a video does not repeat one sound; else a loose assets/sfx/<kind>*.wav; else synthesised.
+ */
+async function sfxFile(kind: keyof typeof SYNTH, cacheDir: string, n = 0): Promise<{ path: string; source: string }> {
+  const lib = join(SFX_DIR, kind);
+  if (existsSync(lib)) {
+    const files = readdirSync(lib).filter((f) => AUDIO_EXT.test(f)).sort();
+    if (files.length) {
+      // Step through the library one file per cue (a fixed stride equal to the file count repeated one sound).
+      const f = files[n % files.length];
+      return { path: join(lib, f), source: `${kind}/${f}` };
+    }
+  }
   if (existsSync(SFX_DIR)) {
     const own = readdirSync(SFX_DIR).filter((f) => f.startsWith(kind) && AUDIO_EXT.test(f)).sort()[0];
     if (own) return { path: join(SFX_DIR, own), source: own };
@@ -76,23 +100,29 @@ async function loudnorm(input: string, output: string, lufs: number, pre = "") {
 export interface AudioReport {
   voice: { denoise: boolean; lufs: number };
   music: string | null;
-  sfx: { kind: string; at: number; source: string }[];
+  /** `at`: where the sound lands (attack, or a whoosh's peak); `start`: where its file starts; `gainDb` applied. */
+  sfx: { kind: string; at: number; source: string; start: number; gainDb: number }[];
   final: { integrated: number; truePeak: number; lra: number };
   notes: string[];
 }
 
 export async function audio(project: Project, style: Style, opts: { force?: boolean } = {}) {
   const cut = project.path("cut", "cut.mp4");
-  const beatsPath = project.path("compose", "beats.json");
+  // The beats as composed (minus words the composition had to drop), else as proposed.
+  const finalPath = project.path("compose", "final-beats.json");
+  const beatsPath = existsSync(finalPath) ? finalPath : project.path("compose", "beats.json");
   const out = project.path("audio", "mix.wav");
   const reportPath = project.path("audio", "audio.json");
   const music = pickMusic(style);
+  // The SFX library is an input too: fetching it (scripts/fetch-sfx.sh) re-mixes.
+  const library = ["whoosh", "pop", "hit", "click", "glitch"].map((k) => join(SFX_DIR, k)).filter((d) => existsSync(d))
+    .flatMap((d) => readdirSync(d).filter((f) => AUDIO_EXT.test(f)).map((f) => join(d, f)));
 
   const res = await cached(project, "audio", {
     code: codeOf(import.meta.url),
-    inputs: [cut, beatsPath, ...(music ? [music] : [])],
+    inputs: [cut, beatsPath, ...(music ? [music] : []), ...library],
     params: { a: style.audio },
-    version: 1,
+    version: 2,
     outputs: [out, reportPath],
     force: opts.force,
   }, async () => {
@@ -127,14 +157,23 @@ export async function audio(project: Project, style: Style, opts: { force?: bool
         "Aucune musique dans assets/music : mixage voix + SFX seulement.");
     }
     const sfxUsed: AudioReport["sfx"] = [];
+    const catalog = await sfxCatalog(SFX_DIR);
+    const levels = kindLevels(catalog);
     let idx = music ? 2 : 1;
     for (const cue of beats.sfx ?? []) {
-      const f = await sfxFile(cue.kind, join(dir, "sfx"));
+      const f = await sfxFile(cue.kind, join(dir, "sfx"), sfxUsed.filter((u) => u.kind === cue.kind).length);
+      const info = catalog[f.source] ?? (await measureSfx(f.path));
+      // A cue is the instant the sound lands: a whoosh's peak, any other sound's attack. A sound whose lead-in
+      // would start before 0 loses that much of its head.
+      const start = cue.at - (cue.kind === "whoosh" ? info.peak : info.onset);
+      const trim = start < 0 ? `atrim=start=${(-start).toFixed(3)},asetpts=PTS-STARTPTS,` : "";
+      const ms = Math.round(Math.max(0, start) * 1000);
+      // Every file of a kind plays at the kind's median level (the rotation must not jump in loudness).
+      const gainDb = Math.round((style.audio.sfxDb + Math.max(-9, Math.min(9, (levels[cue.kind] ?? info.level) - info.level))) * 10) / 10;
       inputs.push("-i", f.path);
-      const ms = Math.round(cue.at * 1000);
-      filters.push(`[${idx}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${style.audio.sfxDb}dB,adelay=${ms}|${ms}[s${idx}]`);
+      filters.push(`[${idx}:a]aformat=sample_rates=48000:channel_layouts=stereo,${trim}volume=${gainDb}dB,adelay=${ms}|${ms}[s${idx}]`);
       mixIn.push(`[s${idx}]`);
-      sfxUsed.push({ kind: cue.kind, at: cue.at, source: f.source });
+      sfxUsed.push({ kind: cue.kind, at: cue.at, source: f.source, start: Math.round(Math.max(0, start) * 1000) / 1000, gainDb });
       idx++;
     }
     filters.push(`${mixIn.join("")}amix=inputs=${mixIn.length}:normalize=0:duration=first[mix]`);

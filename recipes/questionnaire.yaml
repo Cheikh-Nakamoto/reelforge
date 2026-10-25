@@ -1,0 +1,73 @@
+# Questionnaire de départ : il choisit une recette (question « type ») puis l'ajuste avec les autres réponses.
+# Chaque option peut fixer `recipe`, `formats` et des `overrides` de style (même structure que styles/*.yaml).
+questions:
+  - id: type
+    question: Quel type de vidéo veux-tu ?
+    options:
+      - label: Démo produit / tutoriel
+        description: Tu montres un site, une appli ou une méthode ; clarté avant tout.
+        recipe: demo-produit
+      - label: Reel viral
+        description: Court, nerveux, beaucoup de mouvement, pour TikTok / Reels / Shorts.
+        recipe: reel-viral
+      - label: Storytelling / témoignage
+        description: Tu racontes ; rythme posé, image soignée.
+        recipe: storytelling
+      - label: Annonce / promo
+        description: Un message fort à faire retenir (lancement, offre, événement).
+        recipe: reel-viral
+        overrides: { mograph: { hook: true }, effects: { maxPer10s: 2 } }
+  - id: plateforme
+    question: Où sera-t-elle publiée ?
+    options:
+      - { label: TikTok / Reels / Shorts, formats: ["9x16"] }
+      - { label: YouTube, formats: ["16x9"] }
+      - { label: Les deux, formats: ["16x9", "9x16"] }
+  - id: ton
+    question: Quel ton ?
+    options:
+      - label: Énergique
+        overrides: { effects: { maxPer10s: 3, intensity: 1.1 }, motion: { jumpZoom: 1.1 } }
+      - label: Posé
+        overrides: { effects: { maxPer10s: 1, intensity: 0.7 }, motion: { jumpZoom: 1 } }
+      - label: Professionnel
+        overrides: { captions: { emojis: false }, effects: { maxPer10s: 1, intensity: 0.6, cuts: none } }
+  - id: sous-titres
+    question: Quels sous-titres ?
+    options:
+      - label: Gras qui claque
+        description: Majuscules épaisses, contour noir, chaque mot tombe quand il est dit (Hormozi, MrBeast).
+        overrides: { captions: { enabled: true, look: bold, animation: slam, uppercase: true, emojis: true } }
+      - label: Pastille qui suit la voix
+        description: Le mot prononcé passe sur une pastille de couleur (la tendance 2026).
+        overrides: { captions: { enabled: true, look: pill, animation: pop, uppercase: false, emojis: true } }
+      - label: Éditorial
+        description: Sobre, le mot clé en serif italique plus grand ; pour raconter ou faire premium.
+        overrides: { captions: { enabled: true, look: editorial, animation: rise, uppercase: false, emojis: false, keyFont: Playfair Display, keyItalic: true, emphasis: 1.5 } }
+      - label: Minimal
+        description: Blanc épais, sans couleur ni emoji ; laisse parler l'image.
+        overrides: { captions: { enabled: true, look: minimal, animation: pop, emojis: false } }
+      - { label: Aucun, overrides: { captions: { enabled: false } } }
+  - id: rythme
+    question: Quel rythme de coupe ?
+    options:
+      - { label: Serré, overrides: { rhythm: { minPause: 0.25, keep: 0.07 } } }
+      - { label: Naturel, overrides: { rhythm: { minPause: 0.4, keep: 0.12 } } }
+      - { label: Laisser respirer, overrides: { rhythm: { minPause: 0.7, keep: 0.22 } } }
+  - id: matiere
+    question: Qu'as-tu filmé ?
+    multi: true
+    options:
+      - { label: Face caméra, description: Un ou plusieurs rushs où tu parles à la caméra. }
+      - { label: Enregistrement d'écran, description: Le visage peut passer en bulle au-dessus. }
+      - { label: Plusieurs rushs à assembler, description: Une seule vidéo à partir de plusieurs fichiers. }
+  - id: extras
+    question: Quels effets veux-tu en plus ?
+    multi: true
+    options:
+      - { label: Mots derrière moi, overrides: { behind: { enabled: true, max: 2 } } }
+      - { label: Profondeur 3D, overrides: { motion: { depth: 0.8 } } }
+      - { label: Effets CapCut, overrides: { effects: { strongWord: both, cuts: mix } } }
+      - { label: Glitch et RVB, description: "Glitchs sur les coupes, décalage RVB sur les impacts, zooms en escalier.", overrides: { effects: { cuts: glitch, cutEvery: 3, rgbSplit: true, ladder: 2 } } }
+      - { label: Cadre réduit pour le motion, overrides: { frame: { reduceOn: mographs } } }
+      - { label: Pas de musique, overrides: { audio: { music: none } } }

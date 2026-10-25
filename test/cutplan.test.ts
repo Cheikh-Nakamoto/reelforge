@@ -85,3 +85,8 @@ test("words are remapped onto the cut timeline", () => {
   assert.ok(Math.abs(out[0].start - mapTime(plan.keep, 1)!) < 1e-3);
   assert.ok(out[1].start < 1.5, `deux should follow closely, got ${out[1].start}`);
 });
+
+test("an ordinary word that resembles a marker does not drop a take", () => {
+  const ws = W("De@0-0.2 l'autre@0.25-0.6 sens@0.65-0.9 ça@0.95-1.1 a@1.15-1.2 coupé,@1.25-1.7 mais@2.2-2.4 bon.@2.45-2.8");
+  assert.equal(kept(markWords(ws, P)), "De l'autre sens ça a coupé, mais bon.");
+});

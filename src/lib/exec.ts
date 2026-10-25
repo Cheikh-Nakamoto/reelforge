@@ -48,6 +48,22 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
   });
 }
 
+/** Like `run`, for a command whose stdout is binary (raw frames, PCM): resolves with the bytes. */
+export function runBuffer(cmd: string, args: string[]): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { env: { ...process.env, ...LOCAL_ENV }, stdio: ["ignore", "pipe", "pipe"] });
+    const chunks: Buffer[] = [];
+    let stderr = "";
+    child.stdout.on("data", (d: Buffer) => chunks.push(d));
+    child.stderr.on("data", (d) => (stderr += d));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve(Buffer.concat(chunks));
+      else reject(new Error(`${cmd} ${args.join(" ")} exited with ${code}\n${stderr.trim().split("\n").slice(-10).join("\n")}`));
+    });
+  });
+}
+
 /** Path of the pinned HyperFrames CLI installed in this repo. */
 export function hyperframesBin(): string {
   return new URL("../../node_modules/.bin/hyperframes", import.meta.url).pathname;

@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { run } from "../lib/exec.js";
-import { silencedetect } from "../lib/ffmpeg.js";
+import { findSilences } from "../lib/ffmpeg.js";
 import { cached, invalidateFrom, Project, readJson, writeJson, codeOf } from "../lib/project.js";
 import type { Style } from "../lib/style.js";
 import type { Word } from "../lib/words.js";
@@ -32,14 +32,45 @@ export async function proposeCut(project: Project, style: Style, opts: ProposeOp
     remove: merge(prev?.remove, opts.remove, opts.restore),
     restore: merge(prev?.restore, opts.restore, opts.remove),
   };
-  const silences = await silencedetect(project.path("ingest", "audio16k.wav"), style.rhythm.silenceDb, 0.2);
+  const analysis = await findSilences(project.path("ingest", "audio16k.wav"), 0.2, style.rhythm.silenceDb);
+  const silences = analysis.silences;
   const plan = makePlan(words, silences, normalized.duration, params);
-  writeJson(planPath, plan);
+  writeJson(planPath, { ...plan, audio: { threshold: analysis.threshold, floor: analysis.floor, speech: analysis.speech } });
   const md = planMarkdown(plan);
   writeFileSync(project.path("cut", "cutplan.md"), md);
   invalidateFrom(project, "cut");
   return { plan, markdown: md, path: planPath };
 }
+
+/**
+ * Correct misheard words in the project's transcript once (brand names, URLs: "khemrafa.clic" → "xewxew.click"), so
+ * captions and contextual graphics both get them right. Matching ignores case; a replacement may span the whole word.
+ */
+export function fixWords(project: Project, replacements: Record<string, string>) {
+  const keys = Object.entries(replacements).map(([from, to]) => ({ re: new RegExp(escapeRe(from), "gi"), to }));
+  let changed = 0;
+  const apply = (file: string, pick: (j: any) => { text: string }[]) => {
+    if (!existsSync(file)) return;
+    const j = readJson<any>(file);
+    for (const w of pick(j)) {
+      const next = keys.reduce((t, k) => t.replace(k.re, k.to), w.text);
+      if (next !== w.text) {
+        w.text = next;
+        changed++;
+      }
+    }
+    writeJson(file, j);
+  };
+  apply(project.path("transcribe", "words.json"), (j) => j);
+  apply(project.path("cut", "words.json"), (j) => j);
+  apply(project.path("cut", "cutplan.json"), (j) => j.words);
+  const planPath = project.path("cut", "cutplan.json");
+  if (existsSync(planPath)) writeFileSync(project.path("cut", "cutplan.md"), planMarkdown(readJson<CutPlan>(planPath)));
+  invalidateFrom(project, "compose");
+  return { changed };
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Render cut.mp4 from the plan and re-time the transcript onto it. Marks the plan approved. */
 export async function applyCut(project: Project, opts: { force?: boolean } = {}) {

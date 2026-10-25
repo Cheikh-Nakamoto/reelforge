@@ -33,13 +33,44 @@ No paid API, no cloud, no telemetry, no LLM inside the pipeline.
 - **Cut plan you can read.** Fillers ("euh", "bah"), stutters and failed takes (a sentence restarted, or
   announced with "je recommence") are struck through in `cutplan.md`; long pauses are tightened to a breath. Cut
   points snap to measured silences, so ASR timing drift never clips a syllable.
+- **Punchline scenes.** The strongest short sentences cut to full-screen kinetic typography: every word slams
+  in on the beat it is spoken, with motion blur and a landing shake; the key word gets an extruded 3D face.
+- **Screen recordings in a floating 3D phone**, with transitions between assembled parts (zoom, iris, blur) and a
+  slow camera push on every take. Everything renders on CPU: the heavier the style, the longer the render.
+- **Contextual motion design.** What is said picks the graphic: a spoken number counts up, a URL types itself in an
+  address bar, "X au lieu de Y" becomes an A-vs-B card, "c'est-à-dire" a definition, a question a question card, a
+  closing "abonnez-vous" a call-to-action button, and the opening sentence a 3D title.
+- **Short-form captions.** Two or three words at a time, large and heavy, legible without a box (outline and hard
+  shadow), never ending on an article; the spoken word marked and the key word bigger on its own line. Four looks:
+  `bold` (Hormozi / Beast: the spoken word turns accent and pops), `pill` (it hops onto an accent pill), `editorial`
+  (key word in a serif italic) and `minimal` (white, no colour). A contextual emoji (💰 ⏱️ 🌐 🎉…) pops above as a
+  sticker when a word calls for it. Graphics tip in with CSS 3D perspective.
 - **Words behind the speaker.** 1–3 strong words (loud, held, clause-final, numbers) slide in between the
   background and the person. The person is matted only around those words, each window is checked for flicker,
   and unstable ones are replaced — never shipped.
-- **Animated captions** grouped on pauses and clause ends, active word highlighted (pop, rise or karaoke).
+- **Edit like a reference.** `studio reference clip.mp4` (or `studio_reference`) measures a reel you admire on your
+  machine — cuts per second, white flashes, strobes, zoom punches, jump-zoom ladders, shakes, whip pans, brightness,
+  saturation, letterbox — and turns it into style overrides; `--like clip.mp4` on `run` / `assemble` applies them,
+  `--save-recipe` keeps them as a recipe, and the QA compares the render's energy with the reference's. Pixel
+  arithmetic on 96-px grey frames, no model, nothing uploaded (the local take on Higgsfield Katana's reference read).
+- **Animated captions** grouped on pauses, commas and clause ends; the group pops up, or each word lands as it is
+  spoken (slam, rise), or lights up karaoke-style.
 - **Motion graphics on cue**: counters for spoken numbers ("50 € par mois"), callouts, underlines, badges and list
   steps triggered by a per-style lexicon.
 - **Camera**: alternating framing on jump cuts, punch-in on emphasis, colour grade, grain, vignette, letterbox.
+- **Effects** (CapCut-style, rationed by a per-10 s budget, never two on one layer at once): zoom punch, shake,
+  whip pan, white flash, strobe, zoom ladder (hard jump zooms), light leak, colour pop, and an RGB split and a slice
+  glitch baked into the footage by FFmpeg inside their windows only (no browser filter, no render-time cost).
+- **Sound effects placed by ear**: each library file is measured once (attack, peak, level); a cue lands on a
+  sound's attack, or on a whoosh's peak, and every file of a kind plays at the kind's level.
+- **Several rushes, one video**: an intro, a screen recording with voice-over and an explanation are cut
+  separately, then joined; the speaker can shrink into a corner bubble over the screen recording, or into a card
+  that leaves room for a counter or a list.
+- **Robust on real phone audio**: pauses are measured against each rush's own noise floor, and the transcript
+  takes whisper's words with Parakeet's word timings.
+- **CapCut-style effects, rationed**: zoom punch and camera shake on strong words or spoken keywords ("boom",
+  "stop"), white flash and whip pan on cuts, warm light leaks, and a colour pop (the world goes black and white,
+  the speaker stays in colour) under behind-words. Each style sets which effects it allows and how many per 10 s.
 - **Sound**: FFT denoise, compression, two-pass loudnorm to −16 LUFS, music bed with sidechain ducking,
   synthesised whoosh/pop/hit cues.
 - **Both formats**: a vertical rush becomes a pillar-boxed 16:9 over a blurred plate; a landscape rush is cropped
@@ -53,11 +84,37 @@ Three styles ship in `styles/` (YAML, schema in `styles/style.schema.json`):
 
 | Style | Feel |
 |---|---|
-| `cinematic` | unhurried rhythm, serif captions rising word by word, one tracked-out word behind the subject, contrast grade, grain, 2.39 letterbox in 16:9 |
-| `tech-explainer` | boxed captions, monospace panels and counters, callouts on steps, traps and key ideas, clean grade, light zoom on cuts |
-| `reel-dynamique` | tight cuts, alternating zoom on every cut, two-word uppercase captions mid-frame, up to three giant words behind the subject, punchy SFX |
+| `cinematic` | unhurried rhythm, editorial captions rising word by word (key word in serif italic), one tracked-out word behind the subject, contrast grade, grain, 2.39 letterbox in 16:9 |
+| `tech-explainer` | pill captions (the spoken word on an accent pill), monospace panels and counters, callouts on steps, traps and key ideas, clean grade, light zoom on cuts |
+| `reel-dynamique` | tight cuts, alternating zoom on every cut, bold two-word uppercase captions slammed in mid-frame, up to three giant words behind the subject, punchy SFX |
 
 Copy one to make your own; every key is documented in `src/lib/style.ts`.
+
+## Dashboard
+
+`node dist/cli.js serve` (or the MCP tool `studio_dashboard`) opens a local page on http://127.0.0.1:4600 that shows,
+for every project: the eight steps with their results and timings; the render with a multi-lane timeline synced to
+it (parts, cuts, reduced frames, scenes, behind-words, graphics, effects, sounds, captions — click to seek); the cut
+plan with each removed word and why; the motion plan; **the journal of what Claude did** (every MCP tool call with
+its arguments, every pipeline step); QA sheets; versions and checks. Read-only, bound to localhost.
+
+## Recipes and questionnaire
+
+A montage you validate can be kept as a **recipe** (`recipes/*.yaml`): an editing brief for the agent, a style with
+overrides, formats and the expected structure of the rushes. Three ship (`demo-produit`, `reel-viral`,
+`storytelling`). A **questionnaire** (`recipes/questionnaire.yaml`: type of video, platform, tone, captions, rhythm,
+footage, extras) picks a recipe and adjusts it from the answers. Over MCP every recipe is a selectable prompt
+(Claude Code: `/mcp__studio__demo-produit`, `/mcp__studio__questionnaire`).
+
+```bash
+node dist/cli.js recipes
+node dist/cli.js run rushs/demo.mp4 --recipe demo-produit
+node dist/cli.js run rushs/demo.mp4 --answers '{"type":"Reel viral","ton":"Énergique"}'
+node dist/cli.js recipe-save my-project my-recipe --title "Ma démo"
+node dist/cli.js reference rushs/reel-que-j-aime.mp4                      # measured energy and look
+node dist/cli.js run rushs/demo.mp4 --style reel-dynamique --like rushs/reel-que-j-aime.mp4
+node dist/cli.js reference rushs/reel-que-j-aime.mp4 --save-recipe comme-ce-reel --style reel-dynamique
+```
 
 ## Requirements
 
@@ -68,12 +125,17 @@ Copy one to make your own; every key is documented in `src/lib/style.ts`.
 - No GPU needed. Measured on a 4-core i5-7200U laptop without GPU, for a 30 s rush cut down to ~18 s: ingest
   60 s, transcription 23 s, cut 50 s, matte survey 50 s + ~2–3 min per behind-word, audio 10 s, render
   2–4 min per format. Roughly 12–20 minutes for both formats, depending on the style.
+- Render workers: HyperFrames picks the number of Chrome capture workers itself. On that 4-core laptop more
+  workers made capture slower (17 s short: 1 worker 134 s, 2 → 141 s, 3 → 165 s; software raster already fills
+  the cores). On a bigger render machine try `--workers N` (CLI) or `STUDIO_RENDER_WORKERS=N` (MCP server env);
+  the frames are identical either way.
 
 ## Quick start
 
 ```bash
 npm install            # builds dist/ too
 npx hyperframes models install parakeet
+scripts/fetch-sfx.sh     # optional: 45 CC0 sound effects (Kenney, OpenGameArt) into assets/sfx/
 node dist/cli.js doctor
 
 node dist/cli.js run rushs/my-video.mp4 --style tech-explainer   # stops at the cut plan
@@ -95,7 +157,7 @@ claude mcp add studio -- node /path/to/studio/dist/mcp.js
 
 Then: *"Monte rushs/my-video.mp4 en style reel-dynamique."* Tools: `studio_create_project`, `studio_cut_review`,
 `studio_cut_apply`, `studio_beats`, `studio_produce`, `studio_step`, `studio_qa`, `studio_status`,
-`studio_doctor`, `studio_list_styles`, `studio_list_projects`.
+`studio_reference`, `studio_doctor`, `studio_list_styles`, `studio_list_projects`.
 
 ## Known limits
 
@@ -103,6 +165,8 @@ Then: *"Monte rushs/my-video.mp4 en style reel-dynamique."* Tools: `studio_creat
   passes in front of it), and other people in frame are matted in too.
 - Fast motion and busy backgrounds make the matte flicker; studio then drops the word rather than ship it, and says
   so in the QA warnings.
+- The reference analysis counts full-frame switches (a colour pop to black and white, a huge title) as cuts, and
+  does not read captions (no OCR): pick the caption look from the reference's frames.
 - Speech recognition can miss or mis-hear hesitations ("euh" heard as a word); the agent review of the cut plan is
   where they are caught.
 - Tested in French only so far, on a synthetic fixture; real-footage tests are in progress. Other languages

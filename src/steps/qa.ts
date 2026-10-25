@@ -7,6 +7,7 @@ import type { Style } from "../lib/style.js";
 import type { Beats } from "./beats.js";
 import type { ComposeCheck } from "./compose.js";
 import type { MatteReport } from "./matte.js";
+import { analyzeReference, compareEnergy, type ReferenceReport } from "../reference.js";
 
 const FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
@@ -24,6 +25,8 @@ export interface QaReport {
   files: QaFile[];
   warnings: string[];
   mattePreview: string | null;
+  /** With a reference (`--like`): cut and effect rates per 10 s of the reference and of the first export. */
+  energy?: { reference: string; ours: Record<string, number>; theirs: Record<string, number> };
 }
 
 /**
@@ -77,10 +80,20 @@ export async function qa(project: Project, style: Style, outputs: Record<string,
     for (const c of comp.results) {
       if (!c.lint.ok) warnings.push(`${c.format}: hyperframes lint en échec.`);
       if (!c.check.ok) warnings.push(`${c.format}: hyperframes check — ${c.check.errors} erreur(s), ${c.check.warnings} avertissement(s).`);
+      if (c.check.incomplete) warnings.push(`${c.format}: hyperframes check n'a pas fini dans son délai (composition dense) : vérification partielle.`);
     }
   }
+  // Energy check: the export read with the same detectors as the reference it follows.
+  let energy: QaReport["energy"];
+  const ref = project.meta.reference;
+  if (ref && existsSync(ref.report) && files.length) {
+    const theirs = readJson<ReferenceReport>(ref.report);
+    const ours = await analyzeReference(files[0].file);
+    warnings.push(...compareEnergy(theirs, ours));
+    energy = { reference: basename(ref.file), ours: ours.per10s, theirs: theirs.per10s };
+  }
   const preview = project.path("matte", "matte-preview.png");
-  const report: QaReport = { files, warnings, mattePreview: existsSync(preview) ? preview : null };
+  const report: QaReport = { files, warnings, mattePreview: existsSync(preview) ? preview : null, ...(energy ? { energy } : {}) };
   writeJson(project.path("qa", "qa.json"), report);
   writeFileSync(project.path("qa", "qa.md"), qaMarkdown(report));
   return report;
@@ -92,6 +105,11 @@ function qaMarkdown(r: QaReport): string {
     lines.push(`## ${f.format} — ${basename(f.file)}`, "",
       `${f.width}×${f.height}, ${f.duration} s, ${f.loudness.integrated} LUFS, TP ${f.loudness.truePeak} dBFS, LRA ${f.loudness.lra} LU`, "",
       `![planche](${basename(f.sheet)})`, "");
+  }
+  if (r.energy) {
+    const row = (p: Record<string, number>) => Object.values(p).map((x) => String(x).replace(".", ",")).join(" | ");
+    lines.push(`## Énergie face à ${r.energy.reference} (par 10 s)`, "", `| | ${Object.keys(r.energy.ours).join(" | ")} |`,
+      `|---|${Object.keys(r.energy.ours).map(() => "---").join("|")}|`, `| référence | ${row(r.energy.theirs)} |`, `| montage | ${row(r.energy.ours)} |`, "");
   }
   lines.push("## Avertissements", "", ...(r.warnings.length ? r.warnings.map((w) => `- ${w}`) : ["Aucun."]), "");
   return lines.join("\n");

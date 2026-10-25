@@ -12,11 +12,17 @@ test("the MCP server exposes the pipeline tools", { skip: !existsSync(SERVER) &&
   try {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    for (const n of ["studio_create_project", "studio_cut_review", "studio_cut_apply", "studio_beats", "studio_produce", "studio_qa", "studio_status"]) {
+    for (const n of ["studio_create_project", "studio_cut_review", "studio_cut_apply", "studio_beats", "studio_produce", "studio_qa", "studio_status", "studio_reference"]) {
       assert.ok(names.includes(n), `missing tool ${n}`);
     }
     const styles = await client.callTool({ name: "studio_list_styles", arguments: {} });
     assert.match((styles.content as { text: string }[])[0].text, /"name": "cinematic"/);
+
+    const { prompts } = await client.listPrompts();
+    const pnames = prompts.map((p) => p.name);
+    for (const n of ["questionnaire", "demo-produit", "reel-viral", "storytelling"]) assert.ok(pnames.includes(n), `missing prompt ${n}`);
+    const p = await client.getPrompt({ name: "demo-produit", arguments: { rushes: "rushs/a.mp4" } });
+    assert.match((p.messages[0].content as { text: string }).text, /recipe: "demo-produit"/);
 
     const bad = await client.callTool({ name: "studio_status", arguments: { project: "does-not-exist" } });
     assert.equal(bad.isError, true);

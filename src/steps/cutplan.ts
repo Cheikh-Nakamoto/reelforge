@@ -79,7 +79,8 @@ export function markWords(words: Word[], p: CutParams): PlanWord[] {
       if (FILLERS.has(t)) Object.assign(out[i], { keep: false, reason: "filler" });
     });
     for (let i = 0; i + 1 < toks.length; i++) {
-      if (toks[i] && toks[i] === toks[i + 1] && words[i + 1].start - words[i].end < 0.6 && out[i].keep) {
+      // A repeated word, even across a short hesitation ("vos… vos invitations": 0.72 s on a real rush).
+      if (toks[i] && toks[i] === toks[i + 1] && words[i + 1].start - words[i].end < 1.2 && out[i].keep) {
         Object.assign(out[i], { keep: false, reason: "stutter" });
       }
     }

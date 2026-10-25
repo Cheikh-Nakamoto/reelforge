@@ -1,0 +1,16 @@
+name: demo-produit
+title: Démo produit / tutoriel
+description: Montrer un site, une appli ou une méthode, clairement, avec le visage en bulle sur l'écran.
+style: tech-explainer
+formats: ["9x16"]
+structure: intro face caméra → démo (enregistrement d'écran, voix off) → explication, visage en bulle au-dessus de l'écran
+prompt: |
+  Monte une démo produit claire et rythmée.
+  - Coupe les silences, hésitations et prises ratées ; garde chaque étape compréhensible.
+  - S'il y a plusieurs rushs (intro, enregistrement d'écran, explication), assemble-les en une vidéo
+    (studio_assemble) dans l'ordre logique du discours ; le visage passe en bulle au-dessus de l'écran pendant
+    l'explication.
+  - Corrige une fois pour toutes le nom du produit et son URL dans la transcription (studio_fix_words) : ils
+    doivent être exacts dans les sous-titres et dans la barre d'URL.
+  - Graphiques : l'URL tapée, les chiffres qui comptent, les étapes ; pas de mot derrière si le plan est trop serré.
+  - Vérifie sur les planches de QA que rien d'important de l'écran n'est caché par la bulle ou les sous-titres.

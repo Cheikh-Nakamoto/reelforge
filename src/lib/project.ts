@@ -15,6 +15,14 @@ export interface ProjectMeta {
   source: string;
   style: string;
   createdAt: string;
+  /** Built by assembly.ts from several projects: its cut step is the join, never re-cut from a source. */
+  assembly?: boolean;
+  /** Style overrides from a recipe or the questionnaire, merged over `style`. */
+  overrides?: Record<string, unknown>;
+  recipe?: string;
+  formats?: ("16x9" | "9x16")[];
+  /** Reference video the edit follows (`--like`): its analysis feeds the overrides and the QA energy check. */
+  reference?: { file: string; report: string };
 }
 
 export class Project {

@@ -1,8 +1,12 @@
 # Third-party software and models
 
-studio's own code is under the [PolyForm Noncommercial License 1.0.0](LICENSE). It **bundles no third-party
-code, weights, fonts or media** in this repository: everything below is installed by npm or downloaded on
-first use into the user's caches (`~/.cache/hyperframes/`, `node_modules/`). Each keeps its own licence.
+studio's own code is under the [PolyForm Noncommercial License 1.0.0](LICENSE). It bundles **one** piece of
+third-party code, listed first; everything else is installed by npm or downloaded on first use into the user's
+caches (`~/.cache/hyperframes/`, `node_modules/`). Each keeps its own licence.
+
+| Bundled file | Origin | Licence |
+|---|---|---|
+| `templates/vendor/motion-blur.js` | HyperFrames registry, `registry/components/motion-blur` (HeyGen), script body unmodified | Apache-2.0, copy in `templates/vendor/LICENSE-hyperframes-apache-2.0.txt` |
 
 | Component | Used for | Licence | Fetched by |
 |---|---|---|---|
@@ -37,9 +41,18 @@ Recognition 2020).
 
 ## Music and sound effects
 
-The repository ships no audio. Sound effects are synthesised with FFmpeg expressions at run time
-(`src/steps/audio.ts`), so they carry no third-party licence. Music placed in `assets/music/` and samples in
-`assets/sfx/` are the user's responsibility: use tracks you hold the rights to.
+The repository ships no audio. `scripts/fetch-sfx.sh` downloads a sound-effects library into `assets/sfx/`
+(gitignored), from CC0 sources only, after checking each Kenney pack's licence file:
+
+| Pack | Author | Licence | Used as |
+|---|---|---|---|
+| [Interface Sounds](https://kenney.nl/assets/interface-sounds) | Kenney | CC0 1.0 | pops, clicks |
+| [Impact Sounds](https://kenney.nl/assets/impact-sounds) | Kenney | CC0 1.0 | hits |
+| [Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds) | Kenney | CC0 1.0 | glitches (computer noise, force field, cut to 0.5 s) |
+| [Swishes Sound Pack](https://opengameart.org/content/swishes-sound-pack) | artisticdude | CC0 1.0 | whooshes |
+
+Without the library, effects are synthesised with FFmpeg expressions (`src/steps/audio.ts`), with no licence
+attached. Music placed in `assets/music/` is the user's responsibility: use tracks you hold the rights to.
 
 ## Test fixture
 

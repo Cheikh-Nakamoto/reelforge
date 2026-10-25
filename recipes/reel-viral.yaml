@@ -1,0 +1,12 @@
+name: reel-viral
+title: Reel viral
+description: Court et nerveux, pour TikTok, Reels et Shorts.
+style: reel-dynamique
+formats: ["9x16"]
+prompt: |
+  Monte un reel nerveux qui accroche dès la première seconde.
+  - Coupes serrées, une idée par plan ; supprime toute phrase qui n'apporte rien à l'accroche ou à la chute.
+  - Accroche (hook) : deux mots qui donnent envie de rester ; réécris-les dans les beats si le choix automatique est faible.
+  - Mots derrière le sujet, zooms sur les mots forts, emojis : oui, mais jamais sur une phrase sérieuse ou triste.
+  - Termine sur un appel à l'action si la personne en dit un.
+  - Vérifie sur les planches de QA que les sous-titres restent lisibles et loin des boutons de l'appli.

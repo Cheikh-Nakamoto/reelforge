@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>studio — atelier</title>
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #12151d; --panel2: #171b25; --line: #252b38; --text: #e6e9ef; --muted: #8b93a7;
+    --accent: #38bdf8; --ok: #34d399; --warn: #fbbf24; --err: #f87171; --violet: #a78bfa; --pink: #f472b6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); }
+  .app { display: grid; grid-template-columns: 270px 1fr; height: 100%; }
+  aside { border-right: 1px solid var(--line); overflow-y: auto; background: #0e1118; }
+  aside h1 { font-size: 15px; margin: 0; padding: 18px 18px 6px; letter-spacing: 0.02em; }
+  aside .sub { color: var(--muted); font-size: 12px; padding: 0 18px 14px; }
+  .proj { padding: 10px 18px; cursor: pointer; border-left: 3px solid transparent; }
+  .proj:hover { background: var(--panel); }
+  .proj.on { background: var(--panel2); border-left-color: var(--accent); }
+  .proj .n { font-weight: 600; }
+  .proj .m { color: var(--muted); font-size: 12px; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 11px; background: var(--line); color: var(--text); margin-right: 4px; }
+  .badge.a { background: rgba(56,189,248,.15); color: var(--accent); }
+  .badge.v { background: rgba(167,139,250,.15); color: var(--violet); }
+  .badge.ok { background: rgba(52,211,153,.15); color: var(--ok); }
+  .badge.warn { background: rgba(251,191,36,.15); color: var(--warn); }
+  .badge.err { background: rgba(248,113,113,.15); color: var(--err); }
+  main { overflow-y: auto; padding: 22px 28px 60px; }
+  .head h2 { margin: 0 0 4px; font-size: 22px; }
+  .head .meta { color: var(--muted); font-size: 13px; }
+  .steps { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; margin: 18px 0 20px; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; min-height: 92px; position: relative; }
+  .step .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .step .t { font-weight: 650; margin: 2px 0 4px; }
+  .step .d { font-size: 12px; color: var(--muted); }
+  .step.done { border-color: rgba(52,211,153,.35); }
+  .step.done::after { content: "✓"; position: absolute; top: 8px; right: 10px; color: var(--ok); font-weight: 700; }
+  .step.run { border-color: var(--warn); }
+  .step.run::after { content: "…"; position: absolute; top: 6px; right: 10px; color: var(--warn); font-weight: 700; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; flex-wrap: wrap; }
+  .tab { padding: 9px 14px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tab.on { color: var(--text); border-bottom-color: var(--accent); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h3 { margin: 0 0 10px; font-size: 14px; }
+  .grid2 { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 16px; align-items: start; }
+  video { width: 100%; border-radius: 10px; background: #000; display: block; }
+  .fmt { display: flex; gap: 6px; margin-bottom: 8px; }
+  .fmt button, .filters button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+  .fmt button.on, .filters button.on { border-color: var(--accent); color: var(--accent); }
+  .tl { position: relative; }
+  .ruler { position: relative; height: 18px; margin-left: 110px; color: var(--muted); font-size: 10px; }
+  .ruler span { position: absolute; transform: translateX(-50%); }
+  .lane { display: flex; align-items: center; height: 26px; border-top: 1px solid var(--line); }
+  .lane .ln { width: 110px; flex: none; color: var(--muted); font-size: 12px; }
+  .lane .tr { position: relative; flex: 1; height: 100%; }
+  .it { position: absolute; top: 4px; height: 18px; border-radius: 4px; font-size: 10px; line-height: 18px; padding: 0 4px; overflow: hidden;
+    white-space: nowrap; cursor: pointer; color: #0b0d12; font-weight: 600; min-width: 3px; }
+  .it:hover { outline: 2px solid #fff; z-index: 2; }
+  .tick { position: absolute; top: 3px; width: 2px; height: 20px; background: var(--muted); }
+  .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; pointer-events: none; margin-left: 110px; }
+  .words { line-height: 2; }
+  .w { padding: 1px 2px; border-radius: 3px; cursor: default; }
+  .w.cut { text-decoration: line-through; color: var(--err); background: rgba(248,113,113,.08); }
+  .w.filler { color: var(--warn); background: rgba(251,191,36,.08); }
+  .w.retake, .w.restart-marker { color: var(--violet); background: rgba(167,139,250,.08); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  .ev { display: grid; grid-template-columns: 74px 54px 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .ev .time { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ev pre { margin: 4px 0 0; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+  .ev.ev-tool .msg { color: var(--accent); font-weight: 600; }
+  .ev.ev-error .msg { color: var(--err); }
+  .ev.ev-step .msg { color: var(--ok); }
+  .stat { display: inline-block; margin-right: 22px; }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  img.sheet { width: 100%; border-radius: 8px; cursor: zoom-in; display: block; }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  .filters { display: flex; gap: 6px; margin-bottom: 10px; }
+  details summary { cursor: pointer; color: var(--muted); }
+  .legend span { margin-right: 14px; font-size: 12px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  @media (max-width: 1100px) { .steps { grid-template-columns: repeat(4, 1fr); } .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>studio · atelier</h1>
+    <div class="sub">Ce que le pipeline et Claude ont fait, étape par étape. Mise à jour automatique.</div>
+    <div id="projects"></div>
+  </aside>
+  <main id="main"><div class="empty">Choisis un projet.</div></main>
+</div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const fmt = (t) => t == null ? "—" : `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+const secs = (s) => s == null ? "" : s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+const ago = (ms) => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "à l'instant" : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
+
+const STEP_FR = { ingest: "Import", transcribe: "Transcription", cut: "Coupe", matte: "Détourage", compose: "Composition", audio: "Audio", render: "Rendu", qa: "QA" };
+const COLORS = { parts: "#64748b", screen: "#a78bfa", cut: "#94a3b8", frame: "#22d3ee", scene: "#f472b6", behind: "#fbbf24", mograph: "#38bdf8", fx: "#fb923c", sfx: "#a3e635", caption: "#e2e8f0" };
+const REASON_FR = { filler: "hésitation", stutter: "bégaiement", retake: "prise ratée", "restart-marker": "reprise annoncée", manual: "retiré par Claude / toi" };
+
+// ?tab=journal#projet opens a project on a tab (links you can share).
+let state = { project: location.hash.slice(1) || null, tab: new URLSearchParams(location.search).get("tab") || "montage", data: null, fmt: null, filter: "all", sig: "" };
+
+async function loadProjects() {
+  const list = await (await fetch("/api/projects")).json();
+  $("#projects").innerHTML = list.map((p) => `
+    <div class="proj ${p.name === state.project ? "on" : ""}" data-p="${esc(p.name)}">
+      <div class="n">${esc(p.name)}</div>
+      <div class="m"><span class="badge a">${esc(p.style)}</span>${p.recipe ? `<span class="badge v">${esc(p.recipe)}</span>` : ""}${p.assembly ? `<span class="badge">assemblage</span>` : ""}</div>
+      <div class="m">${ago(p.updated)}</div>
+    </div>`).join("") || `<div class="sub">Aucun projet dans work/.</div>`;
+  document.querySelectorAll(".proj").forEach((el) => el.onclick = () => { state.project = el.dataset.p; location.hash = state.project; state.sig = ""; refresh(); loadProjects(); });
+  if (!state.project && list[0]) { state.project = list[0].name; location.hash = state.project; refresh(); loadProjects(); }
+}
+
+async function refresh() {
+  if (!state.project) return;
+  const r = await fetch(`/api/projects/${encodeURIComponent(state.project)}`);
+  const data = await r.json();
+  if (data.error) { $("#main").innerHTML = `<div class="empty">${esc(data.error)}</div>`; return; }
+  // Re-render only when something changed (keeps the video playing).
+  const sig = JSON.stringify([data.status.steps, data.events.length, data.renders, data.jobs.map((j) => [j.status, j.log.length])]);
+  if (sig === state.sig) return;
+  state.sig = sig;
+  state.data = data;
+  render();
+}
+
+function stepSummary(d, s) {
+  const st = d.status.steps.find((x) => x.step === s);
+  const run = d.jobs.some((j) => j.status === "running");
+  // An assembly's import and transcription live in its parts; QA has no cache manifest, its report says it ran.
+  const inParts = d.status.meta.assembly && (s === "ingest" || s === "transcribe");
+  const done = st?.done || inParts || (s === "qa" && d.qa);
+  const cls = done ? "done" : run ? "run" : "";
+  let info = inParts ? `dans les ${d.assembly?.parts?.length ?? ""} parties` : "";
+  if (s === "ingest" && d.probe) info = `${d.probe.normalized.width}×${d.probe.normalized.height}, ${d.probe.normalized.duration.toFixed(1)} s` + (d.probe.probe.rotation ? `, rotation ${d.probe.probe.rotation}°` : "");
+  if (s === "transcribe" && !inParts) info = `${d.transcript.words} mots` + (d.transcript.alignment ? `, ${Math.round(d.transcript.alignment.matched * 100)} % calés` : "");
+  if (s === "cut" && d.cutplan) info = `${d.cutplan.sourceDuration.toFixed(1)} → ${d.cutplan.keptDuration.toFixed(1)} s, ${d.cutplan.keep.length} plans${d.cutplan.approved ? "" : " · à relire"}`;
+  if (s === "matte" && d.matte) info = `sujet ${Math.round(d.matte.presence * 100)} %, ${d.matte.windows.length} fenêtre(s)`;
+  if (s === "compose" && d.compose) info = d.compose.results.map((r) => `${r.format} ${r.lint.ok ? "lint ✓" : "lint ✗"}`).join(", ");
+  if (s === "audio" && d.audio) info = `${d.audio.final.integrated} LUFS, TP ${d.audio.final.truePeak}`;
+  if (s === "render") info = d.renders.map((r) => r.format).join(" + ") || "";
+  if (s === "qa" && d.qa) info = d.qa.warnings.length ? `${d.qa.warnings.length} avertissement(s)` : "aucun avertissement";
+  return `<div class="step ${cls}"><div class="k">${STEPS_N[s]}</div><div class="t">${STEP_FR[s]}</div><div class="d">${esc(info)}</div><div class="d">${st?.seconds != null ? secs(st.seconds) : ""}</div></div>`;
+}
+const STEPS_N = { ingest: "1", transcribe: "2", cut: "3", matte: "4", compose: "5", audio: "6", render: "7", qa: "8" };
+
+function render() {
+  const d = state.data;
+  const m = d.status.meta;
+  const dur = d.beats?.duration ?? d.cutplan?.keptDuration;
+  const warn = d.qa?.warnings?.length ?? 0;
+  $("#main").innerHTML = `
+    <div class="head">
+      <h2>${esc(d.name)}</h2>
+      <div class="meta">style <b>${esc(m.style)}</b>${m.recipe ? ` · recette <b>${esc(m.recipe)}</b>` : ""} · ${esc(m.source)}${dur ? ` · ${dur.toFixed(1)} s` : ""}
+        ${warn ? ` · <span class="badge warn">${warn} avertissement(s)</span>` : d.qa ? ` · <span class="badge ok">QA propre</span>` : ""}
+        ${d.jobs.filter((j) => j.status === "running").map((j) => ` · <span class="badge warn">tâche en cours : ${esc(j.label)}</span>`).join("")}</div>
+    </div>
+    <div class="steps">${Object.keys(STEP_FR).map((s) => stepSummary(d, s)).join("")}</div>
+    <div class="tabs">${[["montage", "Montage"], ["coupe", "Plan de coupe"], ["motion", "Motion design"], ["journal", `Journal de Claude (${d.events.length})`], ["qa", "QA"], ["tech", "Technique"]]
+      .map(([k, l]) => `<div class="tab ${state.tab === k ? "on" : ""}" data-t="${k}">${l}</div>`).join("")}</div>
+    <div id="pane"></div>`;
+  document.querySelectorAll(".tab").forEach((el) => el.onclick = () => { state.tab = el.dataset.t; render(); });
+  ({ montage, coupe, motion, journal, qa, tech })[state.tab](d);
+}
+
+// ---------- Montage: render + synced multi-lane timeline
+function montage(d) {
+  const pane = $("#pane");
+  if (!d.renders.length && !d.beats) { pane.innerHTML = `<div class="empty">Pas encore de rendu ni de plan de motion design.</div>`; return; }
+  const f = d.renders.find((r) => r.format === state.fmt) ?? d.renders.find((r) => r.format === "9x16") ?? d.renders[0];
+  state.fmt = f?.format;
+  const D = d.beats?.duration ?? 1;
+  const b = d.beats ?? { parts: [], cuts: [], frames: [], scenes: [], behind: [], mographs: [], fx: [], sfx: [], captions: [] };
+  const item = (start, end, color, label, title) => {
+    const l = (start / D) * 100, w = Math.max(0.25, ((end - start) / D) * 100);
+    return `<div class="it" style="left:${l}%;width:${w}%;background:${color}" data-t="${start}" title="${esc(title ?? label)}">${esc(label)}</div>`;
+  };
+  const lanes = [
+    ["Parties", b.parts.map((p) => item(p.start, p.end, p.kind === "screen" ? COLORS.screen : COLORS.parts, `${p.name} (${p.kind === "screen" ? "écran" : "visage"})`))],
+    ["Coupes", b.cuts.map((c) => `<div class="tick" style="left:${(c / D) * 100}%" title="coupe à ${fmt(c)}"></div>`)],
+    ["Cadres", b.frames.map((f) => item(f.start, f.end, COLORS.frame, f.mode === "bubble" ? "bulle" : "carte", `${f.mode} ${f.reason ?? ""}`))],
+    ["Scènes", b.scenes.map((s) => item(s.start, s.end, COLORS.scene, s.words.map((w) => w.text).join(" ")))],
+    ["Mots derrière", b.behind.map((x) => item(x.start, x.end, COLORS.behind, x.text))],
+    ["Graphiques", b.mographs.map((x) => item(x.start, x.end, COLORS.mograph, `${x.kind} · ${x.text}`))],
+    ["Effets", b.fx.map((x) => item(x.at, x.at + Math.max(0.2, x.duration), COLORS.fx, x.kind, `${x.kind} — ${x.reason ?? ""}`))],
+    ["SFX", b.sfx.map((x) => item(x.at, x.at + 0.25, COLORS.sfx, x.kind))],
+    ["Sous-titres", b.captions.map((g) => item(g.start, g.end, COLORS.caption, g.words.map((w) => w.text).join(" ") + (g.emoji ?? "")))],
+  ];
+  const step = D > 60 ? 10 : D > 20 ? 5 : 2;
+  const ruler = Array.from({ length: Math.floor(D / step) + 1 }, (_, k) => `<span style="left:${(k * step / D) * 100}%">${fmt(k * step)}</span>`).join("");
+  pane.innerHTML = `
+    <div class="grid2">
+      <div>
+        ${d.renders.length > 1 ? `<div class="fmt">${d.renders.map((r) => `<button class="${r.format === f.format ? "on" : ""}" data-f="${r.format}">${r.format}</button>`).join("")}</div>` : ""}
+        ${f ? `<video id="vid" controls preload="auto" src="/files/${encodeURIComponent(d.name)}/${f.file}?v=${Math.round(f.mtime)}#t=0.5"></video>` : `<div class="empty">Pas encore de rendu.</div>`}
+        <div class="card" style="margin-top:12px"><h3>Légende</h3><div class="legend">
+          ${[["Partie visage", COLORS.parts], ["Partie écran", COLORS.screen], ["Cadre réduit", COLORS.frame], ["Scène typo", COLORS.scene], ["Mot derrière", COLORS.behind], ["Graphique", COLORS.mograph], ["Effet", COLORS.fx], ["SFX", COLORS.sfx]]
+            .map(([l, c]) => `<span><i class="sw" style="background:${c}"></i>${l}</span>`).join("")}</div>
+          <p class="muted" style="margin:10px 0 0">Clique un élément de la frise pour y placer la vidéo.</p></div>
+      </div>
+      <div class="card tl">
+        <h3>Frise du montage</h3>
+        <div class="ruler">${ruler}</div>
+        <div style="position:relative">
+          ${lanes.map(([n, items]) => `<div class="lane"><div class="ln">${n}</div><div class="tr">${items.join("")}</div></div>`).join("")}
+          <div class="playhead" id="ph" style="left:0"></div>
+        </div>
+      </div>
+    </div>`;
+  document.querySelectorAll(".fmt button").forEach((el) => el.onclick = () => { state.fmt = el.dataset.f; montage(d); });
+  const vid = $("#vid"), ph = $("#ph");
+  const track = pane.querySelector(".tr");
+  if (vid && ph && track) {
+    const place = () => { ph.style.left = `calc(${(vid.currentTime / D) * (track.clientWidth)}px)`; if (!vid.paused) requestAnimationFrame(place); };
+    vid.addEventListener("play", place); vid.addEventListener("seeked", place); vid.addEventListener("timeupdate", place);
+    pane.querySelectorAll(".it").forEach((el) => el.onclick = () => { vid.currentTime = Number(el.dataset.t); place(); });
+  }
+}
+
+// ---------- Cut plan
+function coupe(d) {
+  const p = d.cutplan, pane = $("#pane");
+  if (!p) { pane.innerHTML = `<div class="empty">Pas encore de plan de coupe.</div>`; return; }
+  if (d.status.meta.assembly) {
+    const parts = d.assembly?.parts ?? [];
+    pane.innerHTML = `<div class="card"><h3>Assemblage</h3><p class="muted">Chaque partie a son propre plan de coupe, relu avant l'assemblage :</p>
+      ${parts.map((x) => `<div><a href="#${esc(x.name)}" onclick="state.project='${esc(x.name)}';state.sig='';refresh();loadProjects()">${esc(x.name)}</a> — ${x.kind === "screen" ? "enregistrement d'écran" : "face caméra"}, ${fmt(x.start)} → ${fmt(x.end)}</div>`).join("")}</div>`;
+    return;
+  }
+  const removed = p.words.filter((w) => !w.keep);
+  const byReason = {};
+  removed.forEach((w) => byReason[w.reason] = (byReason[w.reason] ?? 0) + 1);
+  pane.innerHTML = `
+    <div class="card">
+      <span class="stat"><b>${p.sourceDuration.toFixed(1)} s</b><span>durée du rush</span></span>
+      <span class="stat"><b>${p.keptDuration.toFixed(1)} s</b><span>après coupe</span></span>
+      <span class="stat"><b>${p.keep.length}</b><span>plans conservés</span></span>
+      <span class="stat"><b>${removed.length}</b><span>mots retirés</span></span>
+      ${p.audio ? `<span class="stat"><b>${p.audio.threshold} dB</b><span>seuil de silence (bruit ${p.audio.floor} dB, voix ${p.audio.speech} dB)</span></span>` : ""}
+      <span class="stat"><b>${p.approved ? "validé" : "à relire"}</b><span>statut</span></span>
+    </div>
+    <div class="card"><h3>Texte</h3>
+      <div class="legend" style="margin-bottom:8px">${Object.entries(byReason).map(([r, n]) => `<span>${REASON_FR[r] ?? r} : ${n}</span>`).join("")}</div>
+      <div class="words">${p.words.map((w) => `<span class="w ${w.keep ? "" : `cut ${w.reason}`}" title="${esc(w.id)} · ${fmt(w.start)}${w.keep ? "" : ` · ${REASON_FR[w.reason] ?? w.reason}`}">${esc(w.text)}</span>`).join(" ")}</div>
+    </div>
+    <div class="card"><h3>Plans conservés</h3><div class="muted">${p.keep.map((s) => `${fmt(s.start)} → ${fmt(s.end)}`).join(" · ")}</div></div>`;
+}
+
+// ---------- Motion design (the beats, as decided and reviewed)
+function motion(d) {
+  const b = d.beats, pane = $("#pane");
+  if (!b) { pane.innerHTML = `<div class="empty">Pas encore de plan de motion design.</div>`; return; }
+  const placements = d.compose?.placements ?? {};
+  const rows = (arr, cols) => arr.length ? `<table><tr>${cols.map((c) => `<th>${c[0]}</th>`).join("")}</tr>${arr.map((x) => `<tr>${cols.map((c) => `<td>${c[1](x)}</td>`).join("")}</tr>`).join("")}</table>` : `<div class="muted">Aucun.</div>`;
+  const emph = b.captions.filter((g) => g.emphasis !== undefined).length;
+  pane.innerHTML = `
+    ${[...(b.notes ?? []), ...(d.compose?.notes ?? [])].length ? `<div class="card"><h3>Remarques du pipeline</h3>${[...(b.notes ?? []), ...(d.compose?.notes ?? [])].map((n) => `<div>⚠ ${esc(n)}</div>`).join("")}</div>` : ""}
+    <div class="card"><h3>Scènes typographiques (${b.scenes.length})</h3>${rows(b.scenes, [["Temps", (x) => `${fmt(x.start)} → ${fmt(x.end)}`], ["Texte", (x) => x.words.map((w, i) => i === x.emphasis ? `<b style="color:var(--pink)">${esc(w.text)}</b>` : esc(w.text)).join(" ")]])}</div>
+    <div class="card"><h3>Graphiques (${b.mographs.length})</h3>${rows(b.mographs, [["Temps", (x) => `${fmt(x.start)} → ${fmt(x.end)}`], ["Type", (x) => `<span class="badge a">${esc(x.kind)}</span>`], ["Contenu", (x) => esc(x.text) + (x.label ? ` <span class="muted">/ ${esc(x.label)}</span>` : "")]])}</div>
+    <div class="card"><h3>Mots derrière le sujet (${b.behind.length})</h3>${rows(b.behind, [["Temps", (x) => `${fmt(x.start)} → ${fmt(x.end)}`], ["Mot", (x) => esc(x.text)], ["Placement mesuré", (x) => Object.entries(placements).map(([f, p]) => p[x.id] ? `${f} : ${Math.round(p[x.id].coverage * 100)} % caché, ${p[x.id].lostLetters} lettre(s), ${p[x.id].fs}px` : "").filter(Boolean).join("<br>") || ((d.compose?.notes ?? []).some((n) => n.includes(`« ${x.text} »`)) ? `<span class="badge warn">retiré à la composition</span>` : "—")]])}</div>
+    <div class="card"><h3>Cadres réduits (${b.frames.length})</h3>${rows(b.frames, [["Temps", (x) => `${fmt(x.start)} → ${fmt(x.end)}`], ["Mode", (x) => x.mode === "bubble" ? "bulle" : "carte"], ["B-roll", (x) => esc(x.broll?.src ?? "—")], ["Pourquoi", (x) => esc(x.reason ?? "")]])}</div>
+    <div class="card"><h3>Effets (${b.fx.length})</h3>${rows(b.fx, [["Temps", (x) => fmt(x.at)], ["Effet", (x) => esc(x.kind)], ["Pourquoi", (x) => esc(x.reason ?? "")]])}</div>
+    <div class="card"><h3>Sous-titres</h3><div class="muted">${b.captions.length} groupes · ${emph} mots forts · emojis : ${b.captions.filter((g) => g.emoji).map((g) => g.emoji).join(" ") || "aucun"}</div></div>
+    <div class="card"><h3>Sons (${b.sfx.length})</h3><div class="muted">${b.sfx.map((x) => `${fmt(x.at)} ${x.kind}`).join(" · ")}</div></div>`;
+}
+
+// ---------- Claude's journal
+function journal(d) {
+  const pane = $("#pane");
+  const ev = d.events.filter((e) => state.filter === "all" || e.kind === state.filter);
+  pane.innerHTML = `
+    <div class="filters">${[["all", "Tout"], ["tool", "Décisions (appels d'outils)"], ["step", "Étapes"], ["error", "Erreurs"]].map(([k, l]) => `<button class="${state.filter === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}</div>
+    <div class="card">${ev.length ? ev.slice().reverse().map((e) => `
+      <div class="ev ev-${e.kind}">
+        <div class="time">${new Date(e.t).toLocaleTimeString("fr-FR")}<br><span class="muted">${new Date(e.t).toLocaleDateString("fr-FR")}</span></div>
+        <div><span class="badge ${e.source === "mcp" ? "v" : e.source === "pipeline" ? "ok" : ""}">${e.source === "mcp" ? "Claude" : e.source === "pipeline" ? "étape" : "CLI"}</span></div>
+        <div><div class="msg">${esc(e.message)}</div>${e.args ? `<details><summary>arguments</summary><pre>${esc(JSON.stringify(e.args, null, 2))}</pre></details>` : ""}</div>
+      </div>`).join("") : `<div class="muted">Rien encore. Les appels de Claude (outils MCP) et les commandes studio s'inscrivent ici.</div>`}</div>`;
+  document.querySelectorAll(".filters button").forEach((el) => el.onclick = () => { state.filter = el.dataset.f; journal(d); });
+}
+
+// ---------- QA
+function qa(d) {
+  const pane = $("#pane"), q = d.qa;
+  pane.innerHTML = `
+    <div class="card"><h3>Avertissements</h3>${q?.warnings?.length ? q.warnings.map((w) => `<div>⚠ ${esc(w)}</div>`).join("") : `<div class="muted">${q ? "Aucun." : "QA pas encore lancée."}</div>`}</div>
+    ${q?.energy ? `<div class="card"><h3>Énergie face à ${esc(q.energy.reference)} (par 10 s)</h3>
+      <table><tr><th></th>${Object.keys(q.energy.ours).map((k) => `<th>${esc(k)}</th>`).join("")}</tr>
+      <tr><td>référence</td>${Object.values(q.energy.theirs).map((v) => `<td>${v}</td>`).join("")}</tr>
+      <tr><td>montage</td>${Object.values(q.energy.ours).map((v) => `<td>${v}</td>`).join("")}</tr></table></div>` : ""}
+    ${q ? `<div class="card"><h3>Exports</h3><table><tr><th>Format</th><th>Taille</th><th>Durée</th><th>Loudness</th><th>True peak</th></tr>
+      ${q.files.map((f) => `<tr><td>${f.format}</td><td>${f.width}×${f.height}</td><td>${f.duration} s</td><td>${f.loudness.integrated} LUFS</td><td>${f.loudness.truePeak} dBFS</td></tr>`).join("")}</table></div>` : ""}
+    ${d.sheets.map((s) => `<div class="card"><h3>Planche contact ${esc(s.split("_").pop().replace(".png", ""))} — 1 image par seconde</h3><a href="/files/${encodeURIComponent(d.name)}/${s}" target="_blank"><img class="sheet" src="/files/${encodeURIComponent(d.name)}/${s}?v=${d.renders[0]?.mtime ?? 0}"></a></div>`).join("")}
+    ${d.mattePreview ? `<div class="card"><h3>Détourage (relevé à 1 img/s, sujet sur magenta)</h3><img class="sheet" src="/files/${encodeURIComponent(d.name)}/${d.mattePreview}"></div>` : ""}`;
+}
+
+// ---------- Technical
+function tech(d) {
+  const pane = $("#pane"), r = d.receipt, c = d.compose, m = d.matte, a = d.audio;
+  pane.innerHTML = `
+    ${r ? `<div class="card"><h3>Reçu de rendu</h3><table>
+      <tr><td>studio</td><td>${esc(r.studio)} (${esc(r.licence)})</td></tr><tr><td>HyperFrames</td><td>${esc(r.hyperframes)}</td></tr>
+      <tr><td>FFmpeg</td><td>${esc(r.ffmpeg)}</td></tr><tr><td>Style</td><td>${esc(r.style?.name)} <span class="muted">${esc(r.style?.sha1?.slice(0, 10))}</span></td></tr>
+      <tr><td>Qualité</td><td>${esc(r.quality)}</td></tr><tr><td>Rendu le</td><td>${new Date(r.renderedAt).toLocaleString("fr-FR")}</td></tr></table>
+      <details><summary>paramètres de chaque étape</summary><pre>${esc(JSON.stringify(r.steps, null, 2))}</pre></details></div>` : ""}
+    ${c ? `<div class="card"><h3>Contrôles HyperFrames</h3>${c.results.map((x) => `<div><b>${x.format}</b> — lint ${x.lint.ok ? `<span class="badge ok">ok</span>` : `<span class="badge err">échec</span>`}
+      check ${x.check.ok ? `<span class="badge ok">ok</span>` : `<span class="badge err">${x.check.errors} erreur(s)</span>`} ${x.check.incomplete ? `<span class="badge warn">partiel</span>` : ""} ${x.check.warnings} avertissement(s)
+      <details><summary>détails</summary><pre>${esc(x.check.output)}</pre></details></div>`).join("")}</div>` : ""}
+    ${m ? `<div class="card"><h3>Détourage</h3><div class="muted">Sujet présent sur ${Math.round(m.presence * 100)} % des images · verdict ${esc(m.verdict)}</div>
+      ${m.windows.length ? `<table><tr><th>Fenêtre</th><th>Verdict</th><th>Oscillation</th><th>Calcul</th></tr>${m.windows.map((w) => `<tr><td>${fmt(w.start)} → ${fmt(w.end)}</td><td>${esc(w.verdict)}</td><td>${w.meanOscillation}</td><td>${secs(w.seconds)}</td></tr>`).join("")}</table>` : ""}</div>` : ""}
+    ${a ? `<div class="card"><h3>Audio</h3><div class="muted">Musique : ${esc(a.music ?? "aucune")} · débruitage ${a.voice.denoise ? "oui" : "non"} · final ${a.final.integrated} LUFS, TP ${a.final.truePeak}, LRA ${a.final.lra}</div>
+      <div class="muted" style="margin-top:6px">${a.sfx.map((s) => `${fmt(s.at)} ${esc(s.kind)} (${esc(s.source)})`).join(" · ")}</div>${a.notes.map((n) => `<div>⚠ ${esc(n)}</div>`).join("")}</div>` : ""}
+    ${d.assembly ? `<div class="card"><h3>Assemblage</h3>${d.assembly.parts.map((p) => `<div>${esc(p.name)} — ${p.kind === "screen" ? "écran" : "visage"}, ${fmt(p.start)} → ${fmt(p.end)}</div>`).join("")}
+      ${d.assembly.transitions?.length ? `<div class="muted">transitions à ${d.assembly.transitions.map(fmt).join(", ")}</div>` : ""}</div>` : ""}`;
+}
+
+loadProjects();
+refresh();
+setInterval(() => { refresh(); }, 4000);
+setInterval(() => { loadProjects(); }, 15000);
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h && h !== state.project) { state.project = h; state.sig = ""; refresh(); loadProjects(); } });
+</script>
+</body>
+</html>

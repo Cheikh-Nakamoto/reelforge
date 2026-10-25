@@ -4,8 +4,8 @@ description: >-
   Explication claire : sous-titres en boîte, panneaux et compteurs en monospace, pastilles sur les mots-clés
   (étapes, pièges, notions), image propre et légers zooms aux coupes.
 fonts:
-  caption: Inter
-  captionWeight: 700
+  caption: Montserrat
+  captionWeight: 800
   behind: Archivo Black
   behindWeight: 400
   graphic: JetBrains Mono
@@ -19,10 +19,13 @@ rhythm:
   minPause: 0.4
   keep: 0.12
 captions:
-  maxWords: 5
+  look: pill          # le mot prononcé passe sur une pastille d'accent qui saute de mot en mot
+  maxWords: 3
+  maxChars: 18
   animation: pop
-  size: 52
-  box: true
+  size: 76
+  emphasis: 1.25
+  emojis: true
 behind:
   max: 1
   hold: 1.8
@@ -40,14 +43,31 @@ mograph:
       kind: list
     - words: [gratuit, local, rapide, simple, automatique, sécurisé]
       kind: badge
+  hook: true
 motion:
   punchIn: 1.03
   jumpZoom: 1.05
   ease: power3.out
+  depth: 0.6
+  blur: true
+  drift: 1.04
+frame:
+  reduceOn: mographs   # le cadre se réduit en carte pendant les compteurs, listes et alertes
+  stage: "#0f172a"
+  device: true   # enregistrements d'écran dans un téléphone 3D
+effects:
+  maxPer10s: 2
+  strongWord: zoomPunch  # léger punch sur les compteurs et les alertes
+  keywords:
+    - words: [bug, bugs, erreur, erreurs, panne, hack, piratage, crash]
+      kind: glitch
+  intensity: 0.7
+scenes:
+  max: 2
 look:
   grade: clean-studio
   gradeIntensity: 0.6
 audio:
   musicDb: -24
   duckDb: 10
-  sfxDb: -16
+  sfxDb: -6       # SFX bien présents, environ 7 dB sous la voix

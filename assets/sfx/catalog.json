@@ -1,0 +1,317 @@
+{
+  "click/click_001.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -21.2,
+    "duration": 0.1,
+    "stamp": "18726:1792890996304"
+  },
+  "click/click_002.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -20.6,
+    "duration": 0.02,
+    "stamp": "2310:1792890996510"
+  },
+  "click/click_003.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -19.2,
+    "duration": 0.01,
+    "stamp": "1446:1792890996769"
+  },
+  "click/click_004.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -20.1,
+    "duration": 0.03,
+    "stamp": "4258:1792891004878"
+  },
+  "click/click_005.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -16.4,
+    "duration": 0.01,
+    "stamp": "1446:1792891006271"
+  },
+  "click/tick_001.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -20.4,
+    "duration": 0.05,
+    "stamp": "8718:1792891009449"
+  },
+  "click/tick_002.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -18.6,
+    "duration": 0.03,
+    "stamp": "3982:1792891026368"
+  },
+  "glitch/computerNoise_000.wav": {
+    "onset": 0,
+    "peak": 0.33,
+    "level": -11.2,
+    "duration": 0.5,
+    "stamp": "96078:1792891028042"
+  },
+  "glitch/computerNoise_001.wav": {
+    "onset": 0,
+    "peak": 0.05,
+    "level": -12.4,
+    "duration": 0.5,
+    "stamp": "94278:1792891028857"
+  },
+  "glitch/computerNoise_002.wav": {
+    "onset": 0,
+    "peak": 0.28,
+    "level": -13.9,
+    "duration": 0.5,
+    "stamp": "96078:1792891029959"
+  },
+  "glitch/computerNoise_003.wav": {
+    "onset": 0,
+    "peak": 0.02,
+    "level": -13.7,
+    "duration": 0.5,
+    "stamp": "96078:1792891030230"
+  },
+  "glitch/forceField_000.wav": {
+    "onset": 0.02,
+    "peak": 0.15,
+    "level": -8.2,
+    "duration": 0.5,
+    "stamp": "96078:1792891030931"
+  },
+  "glitch/forceField_001.wav": {
+    "onset": 0.02,
+    "peak": 0.15,
+    "level": -9,
+    "duration": 0.5,
+    "stamp": "96078:1792891031346"
+  },
+  "glitch/forceField_002.wav": {
+    "onset": 0.02,
+    "peak": 0.14,
+    "level": -8.2,
+    "duration": 0.5,
+    "stamp": "96078:1792891038326"
+  },
+  "hit/impactPunch_heavy_000.wav": {
+    "onset": 0.02,
+    "peak": 0.03,
+    "level": -8.2,
+    "duration": 0.65,
+    "stamp": "124694:1792890981885"
+  },
+  "hit/impactPunch_heavy_001.wav": {
+    "onset": 0.01,
+    "peak": 0.02,
+    "level": -8.3,
+    "duration": 0.54,
+    "stamp": "102982:1792890982890"
+  },
+  "hit/impactPunch_heavy_002.wav": {
+    "onset": 0.01,
+    "peak": 0.02,
+    "level": -7.7,
+    "duration": 0.46,
+    "stamp": "87918:1792890983680"
+  },
+  "hit/impactPunch_heavy_003.wav": {
+    "onset": 0.01,
+    "peak": 0.02,
+    "level": -8.5,
+    "duration": 0.48,
+    "stamp": "91050:1792890991686"
+  },
+  "hit/impactPunch_heavy_004.wav": {
+    "onset": 0.01,
+    "peak": 0.02,
+    "level": -8.3,
+    "duration": 0.54,
+    "stamp": "103058:1792890993785"
+  },
+  "hit/impactSoft_heavy_000.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -6.1,
+    "duration": 0.53,
+    "stamp": "101226:1792890994481"
+  },
+  "hit/impactSoft_heavy_001.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -6,
+    "duration": 0.57,
+    "stamp": "109354:1792890995129"
+  },
+  "hit/impactSoft_heavy_002.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -6,
+    "duration": 0.57,
+    "stamp": "109406:1792890995627"
+  },
+  "pop/drop_001.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -12.5,
+    "duration": 0.14,
+    "stamp": "25438:1792890939659"
+  },
+  "pop/drop_002.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -10.3,
+    "duration": 0.19,
+    "stamp": "36210:1792890940804"
+  },
+  "pop/drop_003.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -10.2,
+    "duration": 0.19,
+    "stamp": "36210:1792890943672"
+  },
+  "pop/drop_004.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -10,
+    "duration": 0.29,
+    "stamp": "54566:1792890960959"
+  },
+  "pop/maximize_001.wav": {
+    "onset": 0.03,
+    "peak": 0.25,
+    "level": -11.8,
+    "duration": 0.26,
+    "stamp": "49690:1792890970466"
+  },
+  "pop/maximize_002.wav": {
+    "onset": 0.03,
+    "peak": 0.25,
+    "level": -9.4,
+    "duration": 0.26,
+    "stamp": "49670:1792890971753"
+  },
+  "pop/maximize_003.wav": {
+    "onset": 0.02,
+    "peak": 0.21,
+    "level": -17.4,
+    "duration": 0.22,
+    "stamp": "40758:1792890978850"
+  },
+  "pop/maximize_004.wav": {
+    "onset": 0.04,
+    "peak": 0.36,
+    "level": -10.8,
+    "duration": 0.42,
+    "stamp": "80330:1792890980975"
+  },
+  "pop/pluck_001.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -14.7,
+    "duration": 0.1,
+    "stamp": "19190:1792890968433"
+  },
+  "pop/pluck_002.wav": {
+    "onset": 0,
+    "peak": 0,
+    "level": -13.7,
+    "duration": 0.17,
+    "stamp": "31118:1792890969136"
+  },
+  "whoosh/swish-1.wav": {
+    "onset": 0.03,
+    "peak": 0.05,
+    "level": -10.1,
+    "duration": 0.13,
+    "stamp": "24320:1792890899845"
+  },
+  "whoosh/swish-10.wav": {
+    "onset": 0.01,
+    "peak": 0.02,
+    "level": -11.6,
+    "duration": 0.13,
+    "stamp": "24120:1792890900500"
+  },
+  "whoosh/swish-11.wav": {
+    "onset": 0.01,
+    "peak": 0.03,
+    "level": -8.3,
+    "duration": 0.11,
+    "stamp": "20124:1792890901377"
+  },
+  "whoosh/swish-12.wav": {
+    "onset": 0.01,
+    "peak": 0.02,
+    "level": -9.7,
+    "duration": 0.08,
+    "stamp": "14720:1792890902550"
+  },
+  "whoosh/swish-13.wav": {
+    "onset": 0.01,
+    "peak": 0.02,
+    "level": -9.4,
+    "duration": 0.08,
+    "stamp": "13724:1792890906265"
+  },
+  "whoosh/swish-2.wav": {
+    "onset": 0.02,
+    "peak": 0.03,
+    "level": -10.4,
+    "duration": 0.1,
+    "stamp": "18520:1792890909563"
+  },
+  "whoosh/swish-3.wav": {
+    "onset": 0.03,
+    "peak": 0.05,
+    "level": -7.6,
+    "duration": 0.15,
+    "stamp": "28124:1792890918058"
+  },
+  "whoosh/swish-4.wav": {
+    "onset": 0.03,
+    "peak": 0.06,
+    "level": -9.1,
+    "duration": 0.15,
+    "stamp": "28120:1792890924698"
+  },
+  "whoosh/swish-5.wav": {
+    "onset": 0.03,
+    "peak": 0.04,
+    "level": -7.8,
+    "duration": 0.13,
+    "stamp": "24520:1792890925579"
+  },
+  "whoosh/swish-6.wav": {
+    "onset": 0.02,
+    "peak": 0.04,
+    "level": -10.5,
+    "duration": 0.14,
+    "stamp": "26620:1792890926593"
+  },
+  "whoosh/swish-7.wav": {
+    "onset": 0.02,
+    "peak": 0.05,
+    "level": -7.6,
+    "duration": 0.19,
+    "stamp": "36120:1792890927436"
+  },
+  "whoosh/swish-8.wav": {
+    "onset": 0.04,
+    "peak": 0.07,
+    "level": -9.8,
+    "duration": 0.16,
+    "stamp": "29624:1792890928821"
+  },
+  "whoosh/swish-9.wav": {
+    "onset": 0.04,
+    "peak": 0.07,
+    "level": -8.7,
+    "duration": 0.2,
+    "stamp": "37920:1792890938786"
+  }
+}

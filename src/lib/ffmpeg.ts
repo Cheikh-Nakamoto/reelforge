@@ -40,26 +40,6 @@ export interface Silence {
   end: number;
 }
 
-/** Silences quieter than `noiseDb` lasting at least `minDur` seconds. */
-export async function silencedetect(file: string, noiseDb: number, minDur: number): Promise<Silence[]> {
-  const { stderr } = await run("ffmpeg", [
-    "-hide_banner", "-nostats", "-i", file, "-af", `silencedetect=noise=${noiseDb}dB:d=${minDur}`, "-f", "null", "-",
-  ]);
-  const out: Silence[] = [];
-  let start: number | null = null;
-  for (const line of stderr.split("\n")) {
-    const s = /silence_start: (-?[\d.]+)/.exec(line);
-    if (s) start = Math.max(0, Number(s[1]));
-    const e = /silence_end: ([\d.]+)/.exec(line);
-    if (e && start !== null) {
-      out.push({ start, end: Number(e[1]) });
-      start = null;
-    }
-  }
-  if (start !== null) out.push({ start, end: Infinity });
-  return out;
-}
-
 export interface Loudness {
   integrated: number;
   truePeak: number;
@@ -78,6 +58,45 @@ export async function measureLoudness(file: string): Promise<Loudness> {
     truePeak: num(/Peak:\s+(-?[\d.]+) dBFS/),
     lra: num(/LRA:\s+(-?[\d.]+) LU/),
   };
+}
+
+export interface SilenceAnalysis {
+  silences: Silence[];
+  /** Threshold used, noise floor (10th percentile) and speech level (90th percentile), in dB. */
+  threshold: number;
+  floor: number;
+  speech: number;
+}
+
+/**
+ * Pauses measured against the rush's own noise floor. A fixed threshold fails on real phone recordings: room noise
+ * sat at −32 to −42 dB on the first real rushes, only 10–16 dB under the voice, so `silencedetect=-35dB` found no
+ * pause at all. Here the threshold sits a third of the way from the floor (10th percentile of 50 ms RMS windows)
+ * to the voice (90th percentile), and a 3-window median smooths out clicks and breaths. A number forces the threshold.
+ */
+export async function findSilences(wav: string, minDur: number, threshold: number | "auto" = "auto"): Promise<SilenceAnalysis> {
+  const win = 0.05;
+  const env = await rmsEnvelope(wav, win);
+  const sorted = env.filter((x) => x > -100).sort((a, b) => a - b);
+  const q = (f: number) => (sorted.length ? sorted[Math.floor(f * (sorted.length - 1))] : -60);
+  const floor = q(0.1), speech = q(0.9);
+  const thr = threshold === "auto" ? floor + Math.max(3, (speech - floor) / 3) : threshold;
+  const smooth = env.map((_, i) => {
+    const w = [env[i - 1] ?? env[i], env[i], env[i + 1] ?? env[i]].sort((a, b) => a - b);
+    return w[1];
+  });
+  const silences: Silence[] = [];
+  let start = -1;
+  smooth.forEach((v, i) => {
+    if (v < thr && start < 0) start = i;
+    if ((v >= thr || i === smooth.length - 1) && start >= 0) {
+      const end = v >= thr ? i : i + 1;
+      if ((end - start) * win >= minDur) silences.push({ start: start * win, end: end === smooth.length ? Infinity : end * win });
+      start = -1;
+    }
+  });
+  const r = (x: number) => Math.round(x * 10) / 10;
+  return { silences, threshold: r(thr), floor: r(floor), speech: r(speech) };
 }
 
 /** Per-window RMS level in dB, used to score how strongly a word is spoken. */

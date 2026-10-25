@@ -5,3 +5,7 @@ rushs/
 vendor-study/
 *.log
 .cache/
+assets/sfx/*/
+assets/sfx/CREDITS.md
+assets/music/*
+!assets/music/.gitkeep

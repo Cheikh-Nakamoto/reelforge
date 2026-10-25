@@ -48,7 +48,7 @@ export function coverage(
   cy: number,
   fs: number,
   cx = p.W / 2,
-): { mean: number; worst: number; lost: number; lostRun: number } {
+): { mean: number; worst: number; lost: number; lostRun: number; lostEdge: boolean } {
   const width = Math.min(p.W * 0.96, p.chars * p.em * fs);
   const capH = fs * 0.72;
   const x0 = cx - width / 2, y0 = cy - capH / 2;
@@ -81,14 +81,16 @@ export function coverage(
     });
     let run = 0, longest = 0;
     for (const f of lostFlags) longest = Math.max(longest, (run = f ? run + 1 : 0));
-    return { area: hit / (NX * NY), lost: lostFlags.filter(Boolean).length, run: longest };
+    return { area: hit / (NX * NY), lost: lostFlags.filter(Boolean).length, run: longest, edge: lostFlags[0] || lostFlags[lostFlags.length - 1] };
   });
-  const worst = per.reduce((a, b) => (b.lost > a.lost || (b.lost === a.lost && b.area > a.area) ? b : a), per[0] ?? { area: 0, lost: 0, run: 0 });
+  const worst = per.reduce((a, b) => (b.lost > a.lost || (b.lost === a.lost && b.area > a.area) ? b : a), per[0] ?? { area: 0, lost: 0, run: 0, edge: false });
   return {
     mean: per.reduce((s, x) => s + x.area, 0) / Math.max(1, per.length),
     worst: Math.max(0, ...per.map((x) => x.area)),
     lost: worst.lost,
     lostRun: worst.run,
+    // The first or last letter hidden changes the word ("VIDÉ" for "VIDÉO").
+    lostEdge: per.some((x) => x.edge),
   };
 }
 
@@ -115,8 +117,9 @@ export function placeBehind(p: PlaceInput): Placement {
       const c = coverage(p, cy, fs, cx);
       // Readable: at most one letter in four lost, and never two lost letters side by side ("BUD__T" does not read).
       const maxLost = Math.max(1, Math.floor(p.chars / 4));
-      const readable = c.lost <= maxLost && c.lostRun <= 1;
-      const ok = readable && c.mean >= 0.15 && c.mean <= 0.58 && c.worst <= 0.68;
+      const readable = c.lost <= maxLost && c.lostRun <= 1 && !c.lostEdge;
+      // Too small, the word stops being the effect: a tight face-filling shot has no room for one.
+      const ok = readable && fs >= p.H * 0.11 && c.mean >= 0.15 && c.mean <= 0.58 && c.worst <= 0.68;
       // Readability first, then distance to the target share, then prefer the larger word.
       // Size matters: a word shrunk to dodge the head loses the effect (0.06 per 10 % smaller), and a centred word
       // is preferred when everything else is equal.

@@ -72,8 +72,16 @@
       "type": "object",
       "properties": {
         "silenceDb": {
-          "default": -35,
-          "type": "number"
+          "default": "auto",
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "auto"
+            },
+            {
+              "type": "number"
+            }
+          ]
         },
         "minPause": {
           "default": 0.35,
@@ -102,10 +110,16 @@
           "type": "boolean"
         },
         "maxWords": {
-          "default": 4,
+          "default": 3,
           "type": "integer",
           "minimum": 1,
           "maximum": 8
+        },
+        "maxChars": {
+          "default": 18,
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 9007199254740991
         },
         "breakPause": {
           "default": 0.15,
@@ -115,18 +129,40 @@
           "default": false,
           "type": "boolean"
         },
+        "look": {
+          "default": "bold",
+          "type": "string",
+          "enum": [
+            "bold",
+            "pill",
+            "editorial",
+            "minimal"
+          ]
+        },
         "animation": {
           "default": "pop",
           "type": "string",
           "enum": [
             "pop",
             "rise",
-            "karaoke"
+            "karaoke",
+            "slam"
           ]
         },
         "size": {
-          "default": 64,
+          "default": 80,
           "type": "number"
+        },
+        "stack": {
+          "default": true,
+          "type": "boolean"
+        },
+        "keyFont": {
+          "type": "string"
+        },
+        "keyItalic": {
+          "default": false,
+          "type": "boolean"
         },
         "highlightActive": {
           "default": true,
@@ -143,6 +179,16 @@
             "low",
             "mid"
           ]
+        },
+        "emphasis": {
+          "default": 1.3,
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1.8
+        },
+        "emojis": {
+          "default": false,
+          "type": "boolean"
         }
       }
     },
@@ -174,7 +220,8 @@
           "enum": [
             "slam",
             "rise",
-            "track"
+            "track",
+            "flip"
           ]
         },
         "size": {
@@ -239,6 +286,14 @@
         "numbers": {
           "default": true,
           "type": "boolean"
+        },
+        "contextual": {
+          "default": true,
+          "type": "boolean"
+        },
+        "hook": {
+          "default": false,
+          "type": "boolean"
         }
       }
     },
@@ -258,9 +313,184 @@
           "minimum": 1,
           "maximum": 1.3
         },
+        "depth": {
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "blur": {
+          "default": false,
+          "type": "boolean"
+        },
+        "drift": {
+          "default": 1,
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1.12
+        },
         "ease": {
           "default": "power3.out",
           "type": "string"
+        }
+      }
+    },
+    "scenes": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "max": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "minGap": {
+          "default": 8,
+          "type": "number"
+        },
+        "background": {
+          "default": "gradient",
+          "type": "string",
+          "enum": [
+            "gradient",
+            "dark"
+          ]
+        }
+      }
+    },
+    "frame": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "reduceOn": {
+          "default": "none",
+          "type": "string",
+          "enum": [
+            "none",
+            "mographs"
+          ]
+        },
+        "cardScale": {
+          "default": 0.74,
+          "type": "number",
+          "minimum": 0.4,
+          "maximum": 0.95
+        },
+        "bubbleScale": {
+          "default": 0.36,
+          "type": "number",
+          "minimum": 0.2,
+          "maximum": 0.5
+        },
+        "radius": {
+          "default": 44,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 120
+        },
+        "device": {
+          "default": false,
+          "type": "boolean"
+        },
+        "stage": {
+          "default": "#0d1117",
+          "type": "string"
+        }
+      }
+    },
+    "effects": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "maxPer10s": {
+          "default": 2,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "strongWord": {
+          "default": "none",
+          "type": "string",
+          "enum": [
+            "none",
+            "zoomPunch",
+            "shake",
+            "both"
+          ]
+        },
+        "cuts": {
+          "default": "none",
+          "type": "string",
+          "enum": [
+            "none",
+            "flash",
+            "whip",
+            "glitch",
+            "mix"
+          ]
+        },
+        "cutEvery": {
+          "default": 3,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "lightLeaks": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "colorPop": {
+          "default": false,
+          "type": "boolean"
+        },
+        "rgbSplit": {
+          "default": false,
+          "type": "boolean"
+        },
+        "ladder": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "keywords": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "words": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "shake",
+                  "zoomPunch",
+                  "flash",
+                  "glitch",
+                  "rgbSplit",
+                  "strobe"
+                ]
+              }
+            },
+            "required": [
+              "words",
+              "kind"
+            ]
+          }
+        },
+        "intensity": {
+          "default": 1,
+          "type": "number",
+          "minimum": 0.2,
+          "maximum": 2
         }
       }
     },

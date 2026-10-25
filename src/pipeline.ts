@@ -1,7 +1,8 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Project, readJson, STEPS, type StepManifest } from "./lib/project.js";
-import { loadStyle, type Style } from "./lib/style.js";
+import { deepMerge, loadStyle, type Style } from "./lib/style.js";
+import { likeReference } from "./reference.js";
 import { applyCompose, proposeCompose } from "./steps/compose.js";
 import { applyCut, proposeCut } from "./steps/cut.js";
 import type { CutPlan } from "./steps/cutplan.js";
@@ -18,7 +19,7 @@ export type Log = (msg: string) => void;
 export function openProject(name: string): { project: Project; style: Style } {
   const project = new Project(name);
   if (!project.exists()) throw new Error(`Unknown project "${name}". Known: ${listProjects().join(", ") || "(none)"}`);
-  return { project, style: loadStyle(project.meta.style) };
+  return { project, style: loadStyle(project.meta.style, project.meta.overrides ?? {}) };
 }
 
 export function listProjects(): string[] {
@@ -30,19 +31,40 @@ export function listProjects(): string[] {
 export async function createProject(
   source: string,
   styleName: string,
-  opts: { name?: string; engine?: Engine; language?: string; model?: string; log?: Log } = {},
+  opts: {
+    name?: string; engine?: Engine; language?: string; model?: string; log?: Log;
+    overrides?: Record<string, unknown>; recipe?: string; formats?: ("16x9" | "9x16")[];
+    /** A reference video to edit like: its measured energy and look go over the other overrides. */
+    like?: string;
+  } = {},
 ) {
   const log = opts.log ?? (() => {});
-  const style = loadStyle(styleName);
   const project = new Project(opts.name ?? Project.nameFromSource(source));
-  project.meta = { name: project.name, source: resolve(source), style: style.name, createdAt: project.exists() ? project.meta.createdAt : new Date().toISOString() };
+  const prev = project.exists() ? project.meta : null;
+  let overrides = opts.overrides ?? prev?.overrides;
+  let reference = prev?.reference;
+  if (opts.like) {
+    const like = await likeReference(opts.like, log);
+    overrides = deepMerge(overrides ?? {}, like.overrides);
+    reference = like.reference;
+  }
+  const style = loadStyle(styleName, overrides ?? {});
+  project.meta = {
+    name: project.name, source: resolve(source), style: style.name, createdAt: prev?.createdAt ?? new Date().toISOString(),
+    ...(overrides ? { overrides } : {}),
+    ...(opts.recipe ?? prev?.recipe ? { recipe: opts.recipe ?? prev?.recipe } : {}),
+    ...(opts.formats ?? prev?.formats ? { formats: opts.formats ?? prev?.formats } : {}),
+    ...(reference ? { reference } : {}),
+  };
   log(`[ingest] ${source}`);
   const ing = await ingest(project, source);
   log(`[ingest] ${ing.cached ? "cache" : `${ing.manifest.seconds}s`} — ${ing.result.normalized.width}x${ing.result.normalized.height} @${ing.result.normalized.fps}fps, ${ing.result.normalized.duration.toFixed(1)}s`);
-  const engine = opts.engine ?? "parakeet";
-  log(`[transcribe] ${engine === "whisper" ? `whisper.cpp ${opts.model ?? "large-v3-turbo"} (${opts.language ?? "fr"})` : "Parakeet TDT v3"}`);
+  const engine = opts.engine ?? "hybrid";
+  const label = { hybrid: "whisper.cpp (texte) + Parakeet (temps)", whisper: "whisper.cpp", parakeet: "Parakeet TDT v3" }[engine];
+  log(`[transcribe] ${label}`);
   const tr = await transcribe(project, { engine, language: opts.language, model: opts.model });
-  log(`[transcribe] ${tr.cached ? "cache" : `${tr.manifest.seconds}s`} — ${tr.words.length} mots`);
+  log(`[transcribe] ${tr.cached ? "cache" : `${tr.manifest.seconds}s`} — ${tr.words.length} mots` +
+    (tr.alignment ? `, ${Math.round(tr.alignment.matched * 100)} % calés sur Parakeet` : ""));
   return { project, style };
 }
 
@@ -65,7 +87,7 @@ export type RunOutcome =
 export async function continuePipeline(project: Project, style: Style, opts: RunOptions = {}): Promise<RunOutcome> {
   const log = opts.log ?? (() => {});
   const planPath = project.path("cut", "cutplan.json");
-  if (opts.repropose || !existsSync(planPath)) {
+  if (!project.meta.assembly && (opts.repropose || !existsSync(planPath))) {
     const p = await proposeCut(project, style);
     log(`[cut] plan : ${p.plan.sourceDuration}s → ${p.plan.keptDuration}s (${p.plan.keep.length} plans)`);
   }
@@ -73,8 +95,10 @@ export async function continuePipeline(project: Project, style: Style, opts: Run
   if (!plan.approved && !opts.approveCut) {
     return { status: "awaiting-cut-approval", project: project.name, plan: project.path("cut", "cutplan.md"), markdown: "" };
   }
-  const cut = await applyCut(project);
-  log(`[cut] ${cut.cached ? "cache" : `${cut.manifest.seconds}s`} — cut.mp4`);
+  if (!project.meta.assembly) {
+    const cut = await applyCut(project);
+    log(`[cut] ${cut.cached ? "cache" : `${cut.manifest.seconds}s`} — cut.mp4`);
+  }
 
   const needsMatte = style.behind.enabled && style.behind.max > 0;
   if (needsMatte) {
@@ -86,7 +110,7 @@ export async function continuePipeline(project: Project, style: Style, opts: Run
     const b = await proposeCompose(project, style, log);
     log(`[compose] ${b.summary.split("\n")[0]}`);
   }
-  const formats = opts.formats ?? ["16x9", "9x16"];
+  const formats = opts.formats ?? project.meta.formats ?? ["16x9", "9x16"];
   const comp = await applyCompose(project, style, { formats });
   for (const n of comp.notes) log(`[compose] ⚠ ${n}`);
   for (const r of comp.results) log(`[compose] ${r.format}: lint ${r.lint.ok ? "ok" : "ÉCHEC"}, check ${r.check.errors} err / ${r.check.warnings} warn`);

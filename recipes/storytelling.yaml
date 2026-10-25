@@ -1,0 +1,11 @@
+name: storytelling
+title: Storytelling / témoignage
+description: Raconter une histoire, rythme posé, image soignée.
+style: cinematic
+formats: ["16x9", "9x16"]
+prompt: |
+  Monte un récit posé et soigné.
+  - Laisse respirer : ne coupe que les vrais temps morts et les reprises ; garde les silences qui portent l'émotion.
+  - Un seul mot derrière le sujet, au moment clé de l'histoire ; peu ou pas d'effets.
+  - Sous-titres discrets, aucun emoji sur un passage émouvant.
+  - Vérifie sur les planches de QA le grain, les bandes 2.39 en 16:9 et la lisibilité des sous-titres.
