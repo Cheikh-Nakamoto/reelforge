@@ -13,3 +13,8 @@ assets/music/*
 !.scratch/tickets/
 .scratch/tickets/*
 !.scratch/tickets/loop.md
+# marketing team (tickets 0030-0044): local agents and linked skills, never published
+.claude/agents/
+.claude/skills/*
+!.claude/skills/studio
+!.claude/skills/ticket/
