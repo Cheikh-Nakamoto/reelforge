@@ -167,7 +167,9 @@ Motion: the HyperFrames skills, written for a newer CLI than the pinned one (che
   selectors above y = 1080. On studio compositions trust the vector rows (`*-moving`, `*-direction`, `z-sign-scan`);
   `zero-overlap` fails by construction, since the rush plays under every overlay and the gate reads opacity, not
   occlusion. Put `cut` on the frame the incoming side ignites: a take's `.cam` `set` inside the window reads as
-  velocity. Until compose writes the ledger (ticket 0025), judge seams on frames.
+  velocity. Compose writes `05-compose/<format>/ledger.json` (scene seams, `sceneSeams` in `stage.ts`) and QA runs
+  the gate (`steps/seams.ts`, Chrome given `--no-sandbox` like HyperFrames' capture: AppArmor kills it sandboxed); its
+  vector and Z-sign FAILs become QA warnings.
 
 Code: `mattpocock-skills:<name>`.
 - `tdd`: every change to `cutplan.ts`, `beats.ts` or `html.ts`, and every bug fix; the seams are their exported

@@ -34,7 +34,10 @@ local models and plain heuristics, and exposes every choice as a readable, edita
 over MCP plays the editor: it reads the cut plan and the motion plan, corrects them, renders, then **looks at the
 result** (contact sheets) and fixes what is wrong.
 
-No paid API, no cloud, no telemetry, no LLM inside the pipeline.
+No paid API, no cloud, no telemetry, no LLM inside the pipeline. The agent, though, reads what it reviews (the
+transcript, the cut and motion plans, the contact sheets) through its own model: with a hosted model (Claude,
+GPT, Gemini…) those go to its provider, while the video and audio files stay on your machine. For nothing to leave
+it, drive studio from the CLI or from a client running a local model.
 
 ## Features
 

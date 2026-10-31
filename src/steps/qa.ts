@@ -7,6 +7,7 @@ import type { Style } from "../lib/style.js";
 import type { Beats } from "./beats.js";
 import type { ComposeCheck } from "./compose.js";
 import type { MatteReport } from "./matte.js";
+import { runSeamGate } from "./seams.js";
 import { analyzeReference, compareEnergy, type ReferenceReport } from "../reference.js";
 
 const FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
@@ -81,6 +82,8 @@ export async function qa(project: Project, style: Style, outputs: Record<string,
       if (!c.lint.ok) warnings.push(`${c.format}: hyperframes lint en échec.`);
       if (!c.check.ok) warnings.push(`${c.format}: hyperframes check — ${c.check.errors} erreur(s), ${c.check.warnings} avertissement(s).`);
       if (c.check.incomplete) warnings.push(`${c.format}: hyperframes check n'a pas fini dans son délai (composition dense) : vérification partielle.`);
+      // Seams measured on the composition itself, for the formats this QA covers.
+      if (c.format in outputs) warnings.push(...(await runSeamGate(c.format, c.dir)));
     }
   }
   // Energy check: the export read with the same detectors as the reference it follows.

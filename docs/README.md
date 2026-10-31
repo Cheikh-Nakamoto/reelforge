@@ -6,7 +6,9 @@ animations au bon moment et mixe le son. Il exporte le résultat en 16:9 et en 9
 
 Un agent IA pilote studio : Claude Code, Codex, Antigravity, Cursor, ou tout autre client qui parle **MCP**.
 L'agent tient le rôle du monteur. Il relit les propositions de studio, les corrige, regarde le rendu et reprend ce
-qui ne va pas. Aucun service cloud, aucune API payante : tout tourne en local.
+qui ne va pas. studio n'utilise aucun service cloud ni aucune API payante : tous ses calculs tournent en local.
+Seul ce que l'agent relit (transcription, plans, planches contact) passe par le modèle de votre client, voir
+[Ce que voit l'agent](01-decouvrir.md#ce-que-studio-fait-de-votre-rush).
 
 ```
  votre rush ──▶ studio propose ──▶ l'agent relit et corrige ──▶ studio rend ──▶ l'agent vérifie ──▶ vidéo finale

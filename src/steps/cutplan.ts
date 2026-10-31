@@ -302,7 +302,7 @@ export function planMarkdown(plan: CutPlan): string {
   flush();
   lines.push("", `## Plans conservés`, "", plan.keep.map((s) => `${ts(s.start)}→${ts(s.end)}`).join(" · "), "");
   lines.push(
-    "Pour corriger : `studio_cut_propose` avec `remove: [ids]` / `restore: [ids]` (ou `studio cut --remove w12,w13`), puis `studio_cut_apply`.",
+    "Pour corriger : `studio_cut_review` avec `remove: [ids]` / `restore: [ids]` (ou `studio cut --remove w12,w13`), puis `studio_cut_apply`.",
   );
   return lines.join("\n") + "\n";
 }

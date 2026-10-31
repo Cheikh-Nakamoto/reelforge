@@ -4,6 +4,14 @@ import type { Beats } from "./beats.js";
 
 type T = (line: string) => void;
 
+// The scene's Z path: it arrives at ENTRY_SCALE and retracts to 1, then leaves towards EXIT_SCALE. Both shrink, so
+// the seams' ledger rows read their sign from here, not from a second copy of the plan.
+const ENTRY_SCALE = 1.25;
+const EXIT_SCALE = 0.8;
+
+/** The rush in the seams' ledger: its deepest camera level, so the gate reads every level above it too. */
+export const RUSH = "#frame-cam .drift";
+
 /**
  * Full-screen kinetic typography (the punchline device of top short-form edits): an animated background lands over
  * the picture in an inverse zoom-through and each word slams in when it is spoken, overshooting from far, with a
@@ -40,9 +48,9 @@ export function buildScenes(scenes: Beats["scenes"], style: Style, W: number, H:
     // sign throughout. Peak blur 20 px on the full-frame background, 10 px on the type (more smears the letters).
     // Blur rides the wrappers and opacity their children: both in one tween composite wrong in headless Chrome.
     const io = r3(Math.min(0.5, Math.max(0.1, sc.end - sc.start - 0.2)));
-    t(`tl.set("#${id} .scbgf", { scale: 1.25, filter: "blur(20px)" }, ${r3(sc.start)});`);
+    t(`tl.set("#${id} .scbgf", { scale: ${ENTRY_SCALE}, filter: "blur(20px)" }, ${r3(sc.start)});`);
     t(`tl.to("#${id} .scbgf", { scale: 1, filter: "blur(0px)", duration: ${io}, ease: "expo.out" }, ${r3(sc.start)});`);
-    t(`tl.set("#${id} .sctf", { scale: 1.25, filter: "blur(10px)" }, ${r3(sc.start)});`);
+    t(`tl.set("#${id} .sctf", { scale: ${ENTRY_SCALE}, filter: "blur(10px)" }, ${r3(sc.start)});`);
     t(`tl.to("#${id} .sctf", { scale: 1, filter: "blur(0px)", duration: ${io}, ease: "expo.out" }, ${r3(sc.start)});`);
     t(`tl.set("#${id} .scbg", { opacity: 0.15 }, ${r3(sc.start)});`);
     t(`tl.to("#${id} .scbg", { opacity: 1, duration: ${io}, ease: "expo.out" }, ${r3(sc.start)});`);
@@ -68,8 +76,8 @@ export function buildScenes(scenes: Beats["scenes"], style: Style, W: number, H:
     // Exit: accelerating away while the opacity falls linearly to 0.15, then the clip's end is the hard cut. 0.2 s
     // against a 0.5 s entry: the inverse zoom-through's 30/70 split, the 75 % rule's cut-the-curve exception.
     const out = r3(sc.end - 0.2);
-    t(`tl.to("#${id} .scbgf", { scale: 0.8, filter: "blur(20px)", duration: 0.2, ease: "power3.in" }, ${out});`);
-    t(`tl.to("#${id} .sctf", { scale: 0.8, filter: "blur(10px)", duration: 0.2, ease: "power3.in" }, ${out});`);
+    t(`tl.to("#${id} .scbgf", { scale: ${EXIT_SCALE}, filter: "blur(20px)", duration: 0.2, ease: "power3.in" }, ${out});`);
+    t(`tl.to("#${id} .sctf", { scale: ${EXIT_SCALE}, filter: "blur(10px)", duration: 0.2, ease: "power3.in" }, ${out});`);
     t(`tl.to("#${id} .scbg", { opacity: 0.15, duration: 0.2, ease: "none" }, ${out});`);
     t(`tl.to("#${id} .sctext", { opacity: 0.15, duration: 0.2, ease: "none" }, ${out});`);
 
@@ -95,6 +103,57 @@ export function buildScenes(scenes: Beats["scenes"], style: Style, W: number, H:
       .scw { display: inline-block; text-shadow: 0 ${Math.round(8 * unit)}px ${Math.round(30 * unit)}px rgba(0,0,0,0.5); }
       .scem { color: ${c.accent}; text-shadow: ${extrude("rgba(0,0,0,0.6)", Math.round(10 * unit))}; }`;
   return { html, css };
+}
+
+/** One row of motion-doctrine's vector ledger (`references/seam-gate.md`): the side that leaves and the one that ignites. */
+export interface SeamRow {
+  id: string;
+  /** The frame the incoming side ignites, on the master clock. */
+  cut: number;
+  technique: string;
+  exit: { selector: string; axis: "x" | "y" | "z"; dir: 1 | -1 };
+  entry: { selector: string; axis: "x" | "y" | "z"; dir: 1 | -1; scanRoot?: string };
+}
+
+/**
+ * The seams of the typography scenes: the rush hands over to the scene at its start and takes the picture back at its
+ * end. The rush is read on its deepest camera level (`.drift`, under `#cam > .push > .shake`), so every level counts.
+ * Both sides carry the scene's own Z sign: that is the plan; a rush that does not follow it is what the gate reports.
+ * No seam within the gate's 0.1 s window of the video's ends, where one side does not exist; two scenes that touch
+ * make one seam.
+ */
+export function sceneSeams(scenes: Beats["scenes"], duration: number): SeamRow[] {
+  const rush = RUSH;
+  const dirIn = Math.sign(1 - ENTRY_SCALE) as 1 | -1;
+  const dirOut = Math.sign(EXIT_SCALE - 1) as 1 | -1;
+  const technique = dirIn < 0 ? "inverse zoom-through" : "zoom-through";
+  const rows: SeamRow[] = [];
+  scenes.forEach((sc, i) => {
+    const prev = scenes[i - 1];
+    const touches = prev && sc.start - prev.end < 1 / 30;
+    if (!touches && sc.start >= 0.1) {
+      rows.push({
+        id: `rush→sc${i}`, cut: r3(sc.start), technique,
+        exit: { selector: rush, axis: "z", dir: dirIn },
+        entry: { selector: `#sc${i} .sctf`, axis: "z", dir: dirIn, scanRoot: `#sc${i}` },
+      });
+    }
+    const next = scenes[i + 1];
+    if (next && next.start - sc.end < 1 / 30) {
+      rows.push({
+        id: `sc${i}→sc${i + 1}`, cut: r3(next.start), technique,
+        exit: { selector: `#sc${i} .sctf`, axis: "z", dir: dirOut },
+        entry: { selector: `#sc${i + 1} .sctf`, axis: "z", dir: dirOut, scanRoot: `#sc${i + 1}` },
+      });
+    } else if (sc.end <= duration - 0.1) {
+      rows.push({
+        id: `sc${i}→rush`, cut: r3(sc.end), technique,
+        exit: { selector: `#sc${i} .sctf`, axis: "z", dir: dirOut },
+        entry: { selector: rush, axis: "z", dir: dirOut, scanRoot: "#frame-cam" },
+      });
+    }
+  });
+  return rows;
 }
 
 export interface DeviceSlot {

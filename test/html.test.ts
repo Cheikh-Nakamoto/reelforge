@@ -399,6 +399,50 @@ test("a whip or a ladder edited into a behind-word never slides nor grows .shake
   assert.match(notes.join("\n"), /fx1.*whip.*monter/);
 });
 
+// Every scale set and tween of a camera level, each with the value it starts from (the last one written before it).
+function cameraOps(html: string, cls: string) {
+  const lines = html.split("\n").filter((l) => (l.includes(`tl.set("${cls}"`) || l.includes(`tl.to("${cls}"`)) && /\bscale: /.test(l));
+  const ops = lines.map((l, k) => ({
+    k, set: l.includes("tl.set("), scale: Number(/scale: ([\d.]+)/.exec(l)![1]),
+    dur: Number(/duration: ([\d.]+)/.exec(l)?.[1] ?? 0), at: Number(/, ([\d.]+)\);\s*$/.exec(l)![1]),
+  })).sort((a, b) => a.at - b.at || a.k - b.k);
+  let held = 1;
+  return ops.map((o) => {
+    const op = { set: o.set, from: held, to: o.scale, start: o.at, end: o.at + o.dur };
+    held = o.scale;
+    return op;
+  });
+}
+
+test("the rush carries the scene's Z vector across both seams: a camera level pulls into the scene and out of it", () => {
+  // The seam gate samples the rush 0.1 s and one frame before the scene's first frame, and one frame and 0.1 s after
+  // its last. A take boundary on either side (3.95 and 6 here, as 9.817 after the scene of synth-motion) must not
+  // reframe there: a .cam set to the tight framing read as a push against the scene's pull (ticket 0026).
+  const scenes: Beats["scenes"] = [{ id: "sc0", start: 4, end: 5.95, words: [{ id: "w0", text: "Bonjour", start: 4.1, end: 4.6 }] }];
+  const f = 1 / 30;
+  const seams = [
+    { name: "into the scene", window: [3.9, 4], sampled: [3.9, 4 - f] },
+    { name: "out of the scene", window: [5.95, 6.05], sampled: [5.95 + f, 6.05] },
+  ];
+  for (const motion of [{}, { drift: 1 }]) {
+    const style = loadStyle("reel-dynamique", { motion });
+    const html = buildHtml({ beats: { ...beats, behind: [], cuts: [2.5, 3.95, 6], scenes }, style, format: FORMATS["9x16"], src: vertical, matte, hasCutout: true });
+    const levels = [".cam", ".push", ".shake", ".drift"].map((cls) => ({ cls, ops: cameraOps(html, cls) }));
+    for (const { name, window: [w0, w1], sampled: [s0, s1] } of seams) {
+      const tag = `drift ${style.motion.drift}, ${name}`;
+      const pulls = levels.filter(({ ops }) => ops.some((o) => !o.set && o.to < o.from && o.start <= s0 + 1e-6 && o.end >= s1 - 1e-6));
+      assert.ok(pulls.length >= 1, `${tag}: no camera level shrinks through ${s0}–${s1}`);
+      for (const { cls, ops } of levels) {
+        for (const o of ops) {
+          const inside = o.set ? o.start > w0 + 1e-6 && o.start < w1 - 1e-6 : Math.min(o.end, w1) - Math.max(o.start, w0) > 1e-6;
+          assert.ok(!(inside && o.to > o.from), `${tag}: ${cls} ${o.set ? "set" : "tween"} grows ${o.from} → ${o.to} at ${o.start}`);
+          assert.ok(!(o.set && inside && o.to !== o.from), `${tag}: ${cls} jumps ${o.from} → ${o.to} at ${o.start}, inside the seam`);
+        }
+      }
+    }
+  }
+});
+
 test("a frame reduction edited over a behind-word drops the word, not the frame, and says so", () => {
   // .frame shrinks the stacks into a card and grows them back: under a word placed on the full frame, the subject
   // leaves the placement and the release pushes against the word's pull. Reduced windows get no behind-words (decision 9).
@@ -454,6 +498,16 @@ test("no style ever writes a bouncing or elastic ease, nor an overshoot past bac
       }
     }
   }
+});
+
+test("a word flipped up on its X axis shares one ease and duration, behind-word or hook line", () => {
+  const mographs: Beats["mographs"] = [{ id: "mg0", kind: "hook", start: 5, end: 8, text: "a", items: ["un", "deux"] }];
+  const style = loadStyle("reel-dynamique", { behind: { animation: "flip" } });
+  const html = buildHtml({ beats: { ...beats, mographs }, style, format: FORMATS["9x16"], src: vertical, matte, hasCutout: true });
+  const flips = [...html.matchAll(/tl\.fromTo\("(#bh0 \.w|#mg0 \.hl\d)", \{ rotationX: -9\d.*duration: ([\d.]+), ease: "([^"]+)" \}/g)]
+    .map((m) => `${m[2]} ${m[3]}`);
+  assert.equal(flips.length, 3, "the behind-word and both hook lines flip");
+  assert.deepEqual([...new Set(flips)], ["0.5 back.out(1.6)"]);
 });
 
 test("a cascade spreads its starts over 0.5 s at most, however many items it has", () => {

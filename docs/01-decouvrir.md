@@ -21,8 +21,14 @@ s'occupe du reste.
 
 Tout tourne sur votre machine : FFmpeg pour l'image et le son, Parakeet et whisper.cpp pour la transcription,
 U²-Net pour détourer la personne, et [HyperFrames](https://github.com/heygen-com/hyperframes) (HTML et GSAP
-rendus par un Chrome sans interface) pour la composition. Aucune image ni aucun son ne quitte votre ordinateur, et
-la télémétrie de chaque outil est coupée.
+rendus par un Chrome sans interface) pour la composition. studio n'envoie rien hors de votre ordinateur, et la
+télémétrie de chaque outil qu'il lance est coupée.
+
+> **Ce que voit l'agent.** Pour relire, l'agent reçoit dans les réponses des outils la transcription, le plan de
+> coupe, le plan de motion design et les planches contact (des vignettes de la vidéo). Si votre client utilise un
+> modèle hébergé (Claude, GPT, Gemini…), ces éléments passent par son fournisseur, selon les conditions de votre
+> client. Les fichiers vidéo et audio eux-mêmes restent sur votre machine. Pour que **rien** ne sorte, pilotez
+> studio en ligne de commande, ou branchez-le sur un client qui fait tourner un modèle local.
 
 ## Qui fait quoi : studio et l'agent
 

@@ -12,6 +12,7 @@ import { alphaMask, assembleSubject, matteWindow, recordWindows, type MatteRepor
 import type { Mask, Placement } from "./placement.js";
 import type { DeviceSlot } from "./stage.js";
 import { fxBakeFilter } from "./effects.js";
+import { seamLedger } from "./seams.js";
 import { gradeCutout, gradeVideo, grainTexture, lookFilter } from "./look.js";
 
 function loadMatte(project: Project): MatteReport | null {
@@ -139,11 +140,11 @@ export async function applyCompose(
   const dirs = formats.map((f) => join(project.stepDir("compose"), f));
 
   await cached(project, "compose", {
-    code: codeOf(import.meta.url, "./beats.js", "./html.js", "./placement.js", "./look.js", "./effects.js", "./stage.js", "./contextual.js"),
+    code: codeOf(import.meta.url, "./beats.js", "./html.js", "./placement.js", "./look.js", "./effects.js", "./stage.js", "./contextual.js", "./seams.js"),
     inputs: [cut, beatsPath],
     params: { formats, style, check: opts.check !== false },
     version: 6,
-    outputs: [report, project.path("compose", "final-beats.json"), ...dirs.map((d) => join(d, "index.html"))],
+    outputs: [report, project.path("compose", "final-beats.json"), ...dirs.flatMap((d) => [join(d, "index.html"), join(d, "ledger.json")])],
     force: opts.force,
   }, async () => {
     const beats = BeatsSchema.parse(readJson<Beats>(beatsPath));
@@ -246,6 +247,8 @@ export async function applyCompose(
       for (const n of comp.notes) if (!cutout.notes.includes(n)) cutout.notes.push(n);
       for (const b of beats.behind) if (!bad.includes(b.id) && !comp.dropped.includes(b.id)) keptBehind.add(b.id);
       writeFileSync(join(dir, "index.html"), comp.html);
+      // The vector ledger of the seams studio writes, for seam-gate in QA (motion-doctrine's Seam Gate).
+      writeJson(join(dir, "ledger.json"), seamLedger(beats, 30));
       results.push(opts.check === false ? skipped(fid, dir) : await lintAndCheck(fid, dir, src.duration));
     }
     const gone = beats.behind.filter((b) => !keptBehind.has(b.id));

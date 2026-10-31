@@ -4,7 +4,7 @@ import type { MatteReport } from "./matte.js";
 import { placeBehind, type Mask, type Placement } from "./placement.js";
 import { CHAR_EM, esc, extrude, r1, r3 } from "../lib/markup.js";
 import { buildCaptions, captionZone } from "./captions.js";
-import { buildDevices, buildScenes, type DeviceSlot } from "./stage.js";
+import { buildDevices, buildScenes, RUSH, sceneSeams, type DeviceSlot } from "./stage.js";
 import { behindFxClashes } from "./effects.js";
 
 export interface Format {
@@ -82,6 +82,12 @@ export function buildHtml(input: HtmlInput): string {
   return buildComposition(input).html;
 }
 
+// The seam gate reads each side of a cut over 0.1 s; the rush's own pull on a scene's side lasts SEAM_T and spends SEAM_Z
+// of scale (power3: ~0.4 es/s on the cut, ~0.24 measured over the gate's window, against its 0.04 floor).
+const SEAM_WINDOW = 0.1;
+const SEAM_T = 0.3;
+const SEAM_Z = 0.04;
+
 export function buildComposition(input: HtmlInput): {
   html: string;
   placements: Record<string, Placement>;
@@ -139,12 +145,22 @@ export function buildComposition(input: HtmlInput): {
   // Caption zone, computed first: behind-words must stay above it.
   const capTop = captionZone(style, W, H).top;
 
+  // The typography scenes' seams, the ledger's own rows: the rush leaves into a scene and comes back out of it on
+  // the scene's Z sign (a pull: ENTRY_SCALE and EXIT_SCALE both shrink). Inside the seam gate's 0.1 s on either
+  // side, a take boundary would reframe the rush against that sign (a .cam set to the tight framing reads as a
+  // push): it moves to the scene's edge, the frame where the picture cuts anyway.
+  const seamRows = sceneSeams(beats.scenes, D);
+  const intoScene = seamRows.filter((r) => r.exit.selector === RUSH && r.exit.dir < 0).map((r) => r.cut);
+  const outOfScene = seamRows.filter((r) => r.entry.selector === RUSH && r.entry.dir < 0).map((r) => r.cut);
+  const camCuts = beats.cuts.map((c) =>
+    intoScene.find((s) => c > s - SEAM_WINDOW && c < s) ?? outOfScene.find((e) => c > e && c <= e + SEAM_WINDOW) ?? c);
+
   // Framing scale of the jump-cut zoom at time t (same rule as the timeline below).
   const jumpSteps: { at: number; scale: number }[] = [];
   if (style.motion.jumpZoom > 1) {
     let tight = false;
-    beats.cuts.forEach((at, k) => {
-      if ((beats.cuts[k + 1] ?? D) - at < 0.8) return;
+    camCuts.forEach((at, k) => {
+      if ((camCuts[k + 1] ?? D) - at < 0.8) return;
       // A take keeps its framing through a behind-word: the word was placed on the subject at the word's start.
       if (beats.behind.some((b) => at > b.start && at < b.end)) return;
       tight = !tight;
@@ -196,7 +212,8 @@ export function buildComposition(input: HtmlInput): {
       t(`tl.set("#${id} .w", { opacity: 0.15 }, ${r3(b.start)});`);
       t(`tl.to("#${id} .w", { opacity: 1, duration: ${io}, ease: "expo.out" }, ${r3(b.start)});`);
     } else if (anim === "flip") {
-      t(`tl.fromTo("#${id} .w", { rotationX: -95, opacity: 0, transformPerspective: 1100 }, { rotationX: 0, opacity: 1, duration: 0.5, ease: "back.out(1.5)" }, ${r3(b.start)});`);
+      // The same flip-up as a hook line (0.5 s, back.out(1.6)): one intent for a word tipped up on its X axis.
+      t(`tl.fromTo("#${id} .w", { rotationX: -95, opacity: 0, transformPerspective: 1100 }, { rotationX: 0, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }, ${r3(b.start)});`);
     } else if (anim === "rise") {
       t(`tl.fromTo("#${id} .w", { yPercent: 60, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.45, ease: "${style.motion.ease}" }, ${r3(b.start)});`);
     } else {
@@ -234,19 +251,42 @@ export function buildComposition(input: HtmlInput): {
   // Camera moves apply to both stacks (.cam = footage under the words, cutout above them) with the same values, so
   // the cutout stays registered on the footage. Two nested levels: .cam alternates framing on jump cuts, .push
   // punches in during behind-words. One baseline each, then plain tweens (repeated fromTo would leak into seeks).
-  // Slow push on every take, alternating in and out, so a talking head never sits still.
-  // A take that holds a behind-word always pulls: the word only shrinks (one Z sign), so the rush recedes with it.
-  if (style.motion.drift > 1) {
-    const edges = [0, ...beats.cuts, D];
-    t(`tl.set(".drift", { scale: 1 }, 0);`);
-    for (let k = 0; k + 1 < edges.length; k++) {
-      const [a, b] = [edges[k], edges[k + 1]];
-      if (b - a < 0.6) continue;
-      const pull = k % 2 === 1 || beats.behind.some((w) => w.start < b && w.end > a);
-      const [from, to] = pull ? [style.motion.drift, 1] : [1, style.motion.drift];
-      t(`tl.set(".drift", { scale: ${from} }, ${r3(a)});`);
-      t(`tl.to(".drift", { scale: ${to}, duration: ${r3(b - a)}, ease: "none" }, ${r3(a)});`);
+  // Slow push on every shot (a take, or the part of it a scene leaves visible), alternating in and out, so a talking
+  // head never sits still. A shot that holds a behind-word always pulls: the word only shrinks (one Z sign), so the
+  // rush recedes with it. A shot next to a scene pulls too, whatever the style's drift: it starts SEAM_Z larger and
+  // spends it in SEAM_T on the seam's side, power3.in into the scene (its exit ease) and power3.out out of it (the
+  // mirror), so the rush is still moving on the cut, pulling like the scene, and never shows its edges.
+  const driftA = style.motion.drift - 1;
+  const near = (xs: number[], v: number) => xs.some((x) => Math.abs(x - v) < 1e-3);
+  const covered = (a: number, b: number) => beats.scenes.some((sc) => (a + b) / 2 > sc.start && (a + b) / 2 < sc.end);
+  const edges = [...new Set([0, ...camCuts, ...beats.scenes.flatMap((sc) => [sc.start, sc.end]), D].map(r3))]
+    .filter((x) => x >= 0 && x <= D).sort((x, y) => x - y);
+  const shots = edges.slice(0, -1).map((a, k) => [a, edges[k + 1]]).filter(([a, b]) => !covered(a, b));
+  const drift: string[] = [];
+  shots.forEach(([a, b], k) => {
+    const into = near(intoScene, b), out = near(outOfScene, a);
+    if (!into && !out && (driftA <= 0 || b - a < 0.6)) return;
+    if (!into && !out && k % 2 === 0 && !beats.behind.some((w) => w.start < b && w.end > a)) {
+      drift.push(`tl.set(".drift", { scale: 1 }, ${r3(a)});`);
+      drift.push(`tl.to(".drift", { scale: ${style.motion.drift}, duration: ${r3(b - a)}, ease: "none" }, ${r3(a)});`);
+      return;
     }
+    const share = into && out ? 2 : 1;
+    const tIn = out ? Math.min(SEAM_T, (b - a) / share) : 0;
+    const tOut = into ? Math.min(SEAM_T, (b - a) / share) : 0;
+    const floor = 1 + (into ? SEAM_Z : 0);
+    const top = r3(floor + Math.max(0, driftA) + (out ? SEAM_Z : 0));
+    drift.push(`tl.set(".drift", { scale: ${top} }, ${r3(a)});`);
+    if (out) drift.push(`tl.to(".drift", { scale: ${r3(top - SEAM_Z)}, duration: ${r3(tIn)}, ease: "power3.out" }, ${r3(a)});`);
+    const linear = b - tOut - (a + tIn);
+    if (driftA > 0 && linear > 0.001) {
+      drift.push(`tl.to(".drift", { scale: ${r3(floor)}, duration: ${r3(linear)}, ease: "none" }, ${r3(a + tIn)});`);
+    }
+    if (into) drift.push(`tl.to(".drift", { scale: 1, duration: ${r3(tOut)}, ease: "power3.in" }, ${r3(b - tOut)});`);
+  });
+  if (drift.length) {
+    if (!drift[0].endsWith(", 0);")) t(`tl.set(".drift", { scale: 1 }, 0);`);
+    drift.forEach(t);
   }
   // A sliver of a take keeps the current framing: alternating on it would read as a flicker.
   if (jumpSteps.length) {
@@ -286,6 +326,8 @@ export function buildComposition(input: HtmlInput): {
   const depth = style.motion.depth;
   // Entrance of a graphic: flat slide, or a 3D tip-in from below the horizon when the style has depth.
   // A side entry (side 1) comes from the right, travelling left like every exit: the film's one current.
+  // The tip-in overshoots less (back.out(1.3)) than a line or a chip (1.6): a whole card is the heavy element, and
+  // implied mass rebounds less (motion-doctrine, causal motion).
   const enter = (sel: string, at: number, side = 0) => depth > 0
     ? t(`tl.fromTo("${sel}", { ${side ? `x: ${side * 80}, ` : ""}rotationX: ${Math.round(-70 * depth)}, rotationY: ${Math.round(side * 55 * depth)}, z: ${Math.round(-260 * depth)}, y: 30, opacity: 0, transformPerspective: 1000 }, { ${side ? "x: 0, " : ""}rotationX: 0, rotationY: 0, z: 0, y: 0, opacity: 1, duration: 0.55, ease: "back.out(1.3)" }, ${r3(at)});`)
     : t(`tl.fromTo("${sel}", { x: ${side * 80}, y: ${side ? 0 : 30}, opacity: 0 }, { x: 0, y: 0, opacity: 1, duration: 0.35, ease: "${style.motion.ease}" }, ${r3(at)});`);

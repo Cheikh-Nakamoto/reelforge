@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { buildSegments, makePlan, mapTime, markWords, remapWords, type CutParams } from "../src/steps/cutplan.js";
+import { buildSegments, makePlan, mapTime, markWords, planMarkdown, remapWords, type CutParams } from "../src/steps/cutplan.js";
 import type { Word } from "../src/lib/words.js";
 
 const P: CutParams = { minPause: 0.35, keep: 0.1, removeFillers: true, removeRetakes: true };
@@ -89,4 +90,12 @@ test("words are remapped onto the cut timeline", () => {
 test("an ordinary word that resembles a marker does not drop a take", () => {
   const ws = W("De@0-0.2 l'autre@0.25-0.6 sens@0.65-0.9 ça@0.95-1.1 a@1.15-1.2 coupé,@1.25-1.7 mais@2.2-2.4 bon.@2.45-2.8");
   assert.equal(kept(markWords(ws, P)), "De l'autre sens ça a coupé, mais bon.");
+});
+
+test("the plan only points the reviewer to MCP tools that exist", () => {
+  const tools = new Set([...readFileSync(new URL("../src/mcp.ts", import.meta.url), "utf8").matchAll(/registerTool\("(studio_\w+)"/g)].map((m) => m[1]));
+  const md = planMarkdown(makePlan(W("Alors@0-0.3 euh@0.4-0.7 le@0.8-0.9 projet@1.1-1.6 avance.@1.7-2.2"), [], 2.5, P));
+  const named = [...md.matchAll(/studio_\w+/g)].map((m) => m[0]);
+  assert.ok(named.length > 0);
+  for (const t of named) assert.ok(tools.has(t), `${t} is not an MCP tool`);
 });
