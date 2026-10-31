@@ -4,6 +4,9 @@ import { endsClause, norm, numericValue, STOPWORDS, type Word } from "../lib/wor
 import { addEmojis, contextualGraphics, emphasize, pickScenes } from "./contextual.js";
 import { behindFxClashes, fxSound, proposeEffects } from "./effects.js";
 import type { MatteReport } from "./matte.js";
+import { proposeSpaces, schedule } from "./cards.js";
+import { proposeCamera, type RigTarget } from "./rig.js";
+import { proposeTransitions, turning } from "./transitions.js";
 
 const WordZ = z.object({ id: z.string(), text: z.string(), start: z.number(), end: z.number() });
 
@@ -56,6 +59,11 @@ export const BeatsSchema = z.object({
     words: z.array(WordZ),
     /** Index of the word set in the accent colour. */
     emphasis: z.number().int().optional(),
+    /**
+     * How the picture hands over to the scene and back (3D budget, decision 23): "portal" is the inverse zoom-through,
+     * "cube" and "flip" turn the rush and the scene as two faces of one solid.
+     */
+    transition: z.enum(["portal", "cube", "flip"]).optional(),
   })).default([]),
   /** Parts of an assembled video (several rushes): screen recordings have no speaker to cut out. */
   parts: z.array(z.object({ name: z.string(), kind: z.enum(["face", "screen"]), start: z.number(), end: z.number() })).default([]),
@@ -67,6 +75,64 @@ export const BeatsSchema = z.object({
     duration: z.number(),
     /** Why it is there (strong word, cut, keyword…), for the reviewer. */
     reason: z.string().optional(),
+  })).default([]),
+  /**
+   * 3D camera rig (decision 23): a move of the perspective wrapper around one scene (`sc<i>`), graphic (`mg<i>`) or
+   * phone (`dv<i>`). Never the rush's camera levels. At most 3 per video.
+   */
+  camera: z.array(z.object({
+    id: z.string(),
+    at: z.number(),
+    duration: z.number(),
+    move: z.enum(["orbit", "crane", "dolly", "truck"]),
+    target: z.string(),
+    /** Why it is there, for the reviewer. */
+    reason: z.string().optional(),
+  })).default([]),
+  /**
+   * Card spaces (decision 23): UI cards floating at different depths, with a depth-of-field blur, and one camera that
+   * travels from card to card. A card is a graphic (same kinds and fields as `mographs`); `at` is the instant the camera
+   * stops on it (the word that names it). Each space spends one of the 3 3D effects. 2 to 6 cards.
+   */
+  spaces: z.array(z.object({
+    id: z.string(),
+    start: z.number(),
+    end: z.number(),
+    cards: z.array(z.object({
+      id: z.string(),
+      kind: z.enum(["counter", "callout", "underline", "badge", "list", "question", "url", "compare", "definition", "cta", "hook"]),
+      text: z.string(),
+      items: z.array(z.string()).optional(),
+      value: z.number().optional(),
+      suffix: z.string().optional(),
+      label: z.string().optional(),
+      at: z.number().optional(),
+    })),
+    /** Why it is there, for the reviewer. */
+    reason: z.string().optional(),
+  })).default([]),
+  /**
+   * Which device shows each screen recording (`dv<i>`: screen parts, then B-roll under a bubble). Absent = the default
+   * from the recording's shape (landscape: browser, portrait: phone). A browser is a 3D effect of the budget of 3.
+   */
+  devices: z.array(z.object({
+    id: z.string(),
+    target: z.string(),
+    kind: z.enum(["phone", "browser"]),
+    /** Address shown in the browser's bar. */
+    url: z.string().optional(),
+  })).default([]),
+  /**
+   * Hover frames the editor lays on a browser's page (no model finds interface elements): a rounded rectangle, in
+   * page positions 0–1, that appears at `at` and stays `duration` s. The page scrolls to it first.
+   */
+  hovers: z.array(z.object({
+    id: z.string(),
+    target: z.string(),
+    at: z.number(),
+    duration: z.number(),
+    x: z.number(), y: z.number(), w: z.number(), h: z.number(),
+    label: z.string().optional(),
   })).default([]),
   notes: z.array(z.string()).default([]),
 });
@@ -297,6 +363,12 @@ export async function proposeBeats(
     });
   }
 
+  // ---- card space: neighbouring graphics staged together in depth (one 3D effect, before frames: a sequence of cards
+  // needs no card reduction per graphic)
+  const staged = proposeSpaces(mographs, { scenes, behind, duration }, style, {});
+  const spaces = staged.spaces;
+  mographs.splice(0, mographs.length, ...staged.mographs);
+
   // ---- frame reductions: the assembly's (a face over B-roll), then cards that give motion graphics room
   const frames: Beats["frames"] = assembly.frames.map((f) => ({ ...f }));
   if (style.frame.reduceOn === "mographs") {
@@ -312,6 +384,20 @@ export async function proposeBeats(
   // ---- visual effects
   const fx = proposeEffects(words, { behind, mographs, cuts, duration, scenes }, style);
 
+  // ---- 3D camera rig: phones (as compose mounts them: screen parts, then B-roll under a bubble), scenes, graphics
+  const devices: RigTarget[] = [];
+  if (style.frame.device) {
+    for (const p of assembly.parts) if (p.kind === "screen") devices.push({ target: `dv${devices.length}`, start: p.start, end: p.end });
+    for (const f of frames) if (f.broll) devices.push({ target: `dv${devices.length}`, start: f.start, end: f.end });
+  }
+  // Scenes that turn (cube, flip) spend 3D effects first; the rig takes what is left of the budget.
+  const turns = proposeTransitions(scenes, { fx, behind, duration }, style);
+  scenes.forEach((s, i) => { if (turns[i] !== "portal") s.transition = turns[i]; });
+  const camera = proposeCamera({ scenes, mographs, devices }, style, {
+    used: turning(turns) + spaces.length,
+    skip: new Set(turns.flatMap((k, i) => (k === "portal" ? [] : [`sc${i}`]))),
+  });
+
   // ---- sound design cues (one cue per moment: an effect does not stack a second sound on a graphic's)
   const sfx: Beats["sfx"] = [];
   if (style.audio.sfx) {
@@ -325,6 +411,15 @@ export async function proposeBeats(
       add("hit", sc.start + 0.02);
       if (sc.emphasis !== undefined) add("pop", sc.words[sc.emphasis].start);
       add("whoosh", sc.end - 0.1);
+    }
+    for (const sp of spaces) {
+      const sch = schedule(sp);
+      if (!sch) continue;
+      // Each card lands with a pop (a hit on a figure); the camera's travel to it whooshes before.
+      sp.cards.forEach((c, k) => {
+        if (k > 0) add("whoosh", sch.focus[k] - 0.35);
+        add(c.kind === "counter" ? "hit" : "pop", sch.focus[k]);
+      });
     }
     for (const m of mographs) {
       if (m.kind === "url") {
@@ -347,7 +442,7 @@ export async function proposeBeats(
   if (!behind.length && style.behind.enabled && matte && matte.verdict !== "bad") {
     notes.push("Aucun mot fort trouvé hors des zones instables.");
   }
-  return { duration: r(duration), captions, behind, mographs, sfx, cuts: cuts.map(r), fx, frames, scenes, parts: assembly.parts, notes };
+  return { duration: r(duration), captions, behind, mographs, sfx, cuts: cuts.map(r), fx, frames, scenes, camera, spaces, devices: [], hovers: [], parts: assembly.parts, notes };
 }
 
 const r = (t: number) => Math.round(t * 1000) / 1000;
@@ -362,10 +457,14 @@ export function beatsSummary(b: Beats): string {
       `${b.mographs.length} motion graphic(s) · ${b.fx.length} effet(s) · ${b.sfx.length} SFX`,
   ];
   for (const x of b.behind) lines.push(`  derrière  ${x.start.toFixed(2)}–${x.end.toFixed(2)}  « ${x.text} » (score ${x.score ?? "-"})`);
-  for (const s of b.scenes) lines.push(`  scène     ${s.start.toFixed(2)}–${s.end.toFixed(2)}  « ${s.words.map((w) => w.text).join(" ")} »`);
+  for (const s of b.scenes) lines.push(`  scène     ${s.start.toFixed(2)}–${s.end.toFixed(2)}  « ${s.words.map((w) => w.text).join(" ")} »${s.transition && s.transition !== "portal" ? ` · transition ${s.transition}` : ""}`);
   for (const f of b.frames) lines.push(`  cadre ${f.mode.padEnd(6)} ${f.start.toFixed(2)}–${f.end.toFixed(2)}  ${f.broll ? `sur ${f.broll.src} ` : ""}${f.reason ?? ""}`);
   for (const f of b.fx) lines.push(`  fx ${f.kind.padEnd(9)} ${f.at.toFixed(2)}–${(f.at + f.duration).toFixed(2)}  ${f.reason ?? ""}`);
   for (const m of b.mographs) lines.push(`  ${m.kind.padEnd(9)} ${m.start.toFixed(2)}–${m.end.toFixed(2)}  « ${m.text} »${m.label ? ` / ${m.label}` : ""}`);
+  for (const c of b.camera ?? []) lines.push(`  caméra ${c.move.padEnd(6)} ${c.at.toFixed(2)}–${(c.at + c.duration).toFixed(2)}  sur ${c.target} ${c.reason ?? ""}`);
+  for (const sp of b.spaces ?? []) lines.push(`  espace    ${sp.start.toFixed(2)}–${sp.end.toFixed(2)}  ${sp.cards.length} cartes (${sp.cards.map((c) => `${c.kind} « ${c.text} »`).join(", ")}) ${sp.reason ?? ""}`);
+  for (const d of b.devices ?? []) lines.push(`  appareil ${d.target} = ${d.kind}${d.url ? ` (${d.url})` : ""}`);
+  for (const h of b.hovers ?? []) lines.push(`  survol    ${h.at.toFixed(2)}–${(h.at + h.duration).toFixed(2)}  sur ${h.target} (${h.x}, ${h.y}, ${h.w}×${h.h})${h.label ? ` « ${h.label} »` : ""}`);
   for (const n of b.notes) lines.push(`  ⚠ ${n}`);
   // Told at review, not only in QA: a hand-edited camera effect under a behind-word is neutralized at composition.
   for (const c of behindFxClashes(b)) lines.push(`  ⚠ ${c.note}`);

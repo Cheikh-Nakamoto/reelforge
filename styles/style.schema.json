@@ -356,6 +356,27 @@
             "gradient",
             "dark"
           ]
+        },
+        "transition": {
+          "default": "portal",
+          "type": "string",
+          "enum": [
+            "portal",
+            "cube",
+            "flip"
+          ]
+        }
+      }
+    },
+    "camera": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "max": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
         }
       }
     },

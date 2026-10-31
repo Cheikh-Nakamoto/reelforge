@@ -68,6 +68,9 @@ effects:
   intensity: 1
 scenes:
   max: 3   # punchlines en typo plein écran
+  transition: cube   # rotation de cube entre le rush et la scène (3D, sur le budget de camera.max)
+camera:
+  max: 3   # budget 3D (transitions de scène comprises) : orbite sur les scènes, travelling avant sur téléphone et graphismes
 frame:
   device: true
 look:

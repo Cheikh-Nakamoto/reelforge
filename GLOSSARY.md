@@ -14,6 +14,24 @@ _Avoid_: clip, source (when the file is meant), footage (that is the rush's pict
 **Review gate**: a point where the edit stops until a person approves a proposal: the cut plan, the QA contact
 sheets.
 
+**Rig**: the perspective wrapper (`.rig` > `.rigcam`) around one scene, graphic or phone, which a camera move
+(`beats.camera`: orbit, crane, dolly, truck) drives. It never wraps the rush, whose camera levels stay as they are.
+_Avoid_: camera (that is the rush's `.cam` stack).
+
+**Card space**: UI cards at different depths (`cards.ts`, `beats.spaces`), with a depth-of-field blur growing with the
+distance to the focus plane, and one camera path (`.spcam`) that arrives on each card in turn. Its cards are graphics
+(same kinds as `beats.mographs`), not cut-outs of a recording. A space spends one of the 3 3D effects.
+_Avoid_: rig (that wraps one scene, graphic or phone; a space owns its own camera).
+
+**Browser**: the desktop-window alternative to the phone for a screen recording (`browser.ts`): tab bar, address bar, three
+dots, the recording as a page that scrolls in a viewport, in perspective. Its **hover frames** (`beats.hovers`) are
+rectangles in page positions (0–1) that the editor lays on an element; the page scrolls to them first. A browser spends
+one of the 3 3D effects.
+_Avoid_: window (ambiguous with the matte windows).
+
+**Turn** (3D transition): the hand-over between the rush and a typography scene as two faces of one solid
+(`scenes[].transition`: cube, flip; `portal` is the Z crossing). The rush turns on `.shake`, hidden while the scene is on.
+
 **Correction round**: one pass of fixes after a QA review, ended by a new render and a new QA.
 
 ## Work

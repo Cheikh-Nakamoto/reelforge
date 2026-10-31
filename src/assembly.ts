@@ -17,6 +17,8 @@ import { createProject, type Log } from "./pipeline.js";
  * Several rushes edited as one video: e.g. a face-cam intro, an explanation where the speaker shrinks into a bubble
  * over a screen recording, then the screen recording with its own voice-over.
  */
+const CROSSFADES = new Set(["fade", "fadeblack", "fadewhite", "fadegrays", "fadefast", "fadeslow", "dissolve"]);
+
 export const AssemblySchema = z.object({
   name: z.string().regex(/^[a-z0-9-]+$/, "lowercase letters, digits and dashes"),
   style: z.string(),
@@ -43,7 +45,13 @@ export const AssemblySchema = z.object({
    * or "cut" for a hard cut. One direction by default: a film rides one current, and a junction that switches
    * direction each time reads as an error (motion-doctrine).
    */
-  transitions: z.array(z.string()).default(["smoothleft"]),
+  transitions: z
+    .array(
+      z.string().refine((t) => !CROSSFADES.has(t), {
+        message: "crossfades are refused (motion-doctrine: nothing carries the eye across); use smoothleft, or cut",
+      }),
+    )
+    .default(["smoothleft"]),
   transitionDuration: z.number().min(0.1).max(1.5).default(0.45),
   /** Style overrides for the joined video (same structure as styles/*.yaml). */
   overrides: z.record(z.string(), z.unknown()).optional(),

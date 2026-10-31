@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hyperframes, run } from "../lib/exec.js";
+import { describeGpu, detectGpu, gpuMode, planGpu } from "../lib/gpu.js";
 import { cached, Project, readJson, ROOT, STEPS, writeJson, type StepManifest, codeOf } from "../lib/project.js";
 import { STYLES_DIR } from "../lib/style.js";
 import type { Format } from "./html.js";
@@ -39,11 +40,14 @@ export async function render(project: Project, opts: RenderOptions = {}) {
   const sources = formats.map((f) => join(project.stepDir("compose"), f, "index.html"));
   for (const s of sources) if (!existsSync(s)) throw new Error(`Not composed yet: ${s}`);
   const receiptPath = project.path("render", "receipt.json");
+  const mode = gpuMode();
+  const gpu = await detectGpu();
+  const plan = planGpu(gpu, mode);
 
   const res = await cached(project, "render", {
     code: codeOf(import.meta.url),
     inputs: [mix, ...sources],
-    params: { formats, quality },
+    params: { formats, quality, ...(plan.renderHardware ? { gpu: plan.render } : {}) },
     version: 2,
     outputs: [...outputs, receiptPath],
     force: opts.force,
@@ -52,17 +56,26 @@ export async function render(project: Project, opts: RenderOptions = {}) {
       const dir = join(project.stepDir("compose"), f);
       const picture = project.path("render", `picture_${f}.mp4`);
       // The picture depends on the composition only: a new mix (louder SFX, music) re-muxes without re-rendering.
-      const key = pictureKey(dir, quality);
+      const key = pictureKey(dir, quality, plan.renderHardware ? plan.render : []);
       const keyFile = project.path("render", `picture_${f}.key`);
       if (existsSync(picture) && existsSync(keyFile) && readFileSync(keyFile, "utf8") === key) {
         opts.onProgress?.(`render ${f}: image en cache, nouveau son seulement`);
       } else {
         opts.onProgress?.(`render ${f}…`);
         const workers = opts.workers ?? process.env.STUDIO_RENDER_WORKERS;
-        await hyperframes(["render", "--output", picture, "--quality", quality, ...(workers ? ["--workers", String(workers)] : [])], {
+        const base = ["render", "--output", picture, "--quality", quality, ...(workers ? ["--workers", String(workers)] : [])];
+        const go = (extra: string[]) => hyperframes([...base, ...extra], {
           cwd: dir,
           onStderr: (s) => opts.onProgress?.(s.trim().split("\n").pop() ?? ""),
         });
+        try {
+          await go(plan.render);
+        } catch (e) {
+          // A driver that is detected but does not work must not stop the render: redo it on the CPU path.
+          if (!plan.render.length || mode === "on") throw e;
+          opts.onProgress?.(`render ${f}: GPU indisponible, repli sur le CPU`);
+          await go([]);
+        }
         writeFileSync(keyFile, key);
       }
       await run("ffmpeg", [
@@ -72,7 +85,7 @@ export async function render(project: Project, opts: RenderOptions = {}) {
         "-metadata", `comment=${PROVENANCE}`, "-metadata", "encoder=studio", outputs[i],
       ]);
     }
-    writeJson(receiptPath, await receipt(project, outputs, quality));
+    writeJson(receiptPath, await receipt(project, outputs, quality, { mode, found: describeGpu(gpu, mode), gpu, args: plan.render }));
   });
   return { ...res, outputs: Object.fromEntries(formats.map((f, i) => [f, outputs[i]])), receipt: receiptPath };
 }
@@ -83,8 +96,10 @@ const sha1 = (file: string) => createHash("sha1").update(readFileSync(file)).dig
  * Identity of a rendered picture: the composition HTML, its assets (size and first/last 256 KB: compose re-copies
  * them, so dates change while content does not), quality and engine version.
  */
-export function pictureKey(dir: string, quality: string): string {
+export function pictureKey(dir: string, quality: string, gpuArgs: string[] = []): string {
   const h = createHash("sha1").update(readFileSync(join(dir, "index.html"))).update(quality).update(HYPERFRAMES_VERSION);
+  // Hardware encoding or GL changes the pixels or the bitstream; the CPU path keeps the historical key.
+  if (gpuArgs.length) h.update(`gpu:${gpuArgs.join(" ")}`);
   const assets = join(dir, "assets");
   if (existsSync(assets)) {
     for (const f of readdirSync(assets).sort()) {
@@ -104,7 +119,7 @@ export function pictureKey(dir: string, quality: string): string {
 }
 
 /** What produced these files: tool and model versions, style, parameters and time spent per step. */
-async function receipt(project: Project, outputs: string[], quality: string) {
+async function receipt(project: Project, outputs: string[], quality: string, gpu: unknown) {
   const meta = project.meta;
   const steps: Record<string, unknown> = {};
   for (const s of STEPS) {
@@ -123,6 +138,7 @@ async function receipt(project: Project, outputs: string[], quality: string) {
     source: meta.source,
     style: { name: meta.style, sha1: existsSync(styleFile) ? sha1(styleFile) : null },
     quality,
+    gpu,
     outputs: outputs.map((o) => ({ file: o, sha1: sha1(o) })),
     steps,
     renderedAt: new Date().toISOString(),

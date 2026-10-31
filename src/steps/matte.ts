@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { hyperframes, run } from "../lib/exec.js";
+import { detectGpu, gpuMode, planGpu } from "../lib/gpu.js";
 import { ffprobe, runBinary } from "../lib/ffmpeg.js";
 import { streamGrayFrames } from "../lib/frames.js";
 import { cached, Project, readJson, writeJson } from "../lib/project.js";
@@ -76,7 +77,7 @@ export async function matteSurvey(project: Project, opts: { force?: boolean } = 
     force: opts.force,
   }, async () => {
     await run("ffmpeg", ["-v", "error", "-y", "-i", src, "-an", "-vf", "fps=1", "-c:v", "libx264", "-crf", "14", "-pix_fmt", "yuv420p", sampled]);
-    await hyperframes(["remove-background", sampled, "-o", cutout, "--quality", "fast", "--device", "auto"]);
+    await removeBackground([sampled, "-o", cutout, "--quality", "fast"]);
     const survey = await analyzeSurvey(src, cutout);
     const report: MatteReport = {
       ...survey,
@@ -159,7 +160,7 @@ export async function matteWindow(project: Project, start: number, end: number):
     "-v", "error", "-y", "-ss", s.toFixed(3), "-i", src, "-t", (e - s).toFixed(3), "-an",
     "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p", clip,
   ]);
-  await hyperframes(["remove-background", clip, "-o", file, "--quality", "best", "--device", "auto"]);
+  await removeBackground([clip, "-o", file, "--quality", "best"]);
   const a = await analyzeStability(clip, file);
   const shift = (r: Range) => ({ ...r, start: round(r.start + s), end: round(r.end + s) });
   const win: MatteWindow = {
@@ -317,3 +318,18 @@ const pct = (xs: number[], q: number) => {
   return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : 0;
 };
 const round = (x: number) => Math.round(x * 1000) / 1000;
+
+/**
+ * `hyperframes remove-background` on the GPU when one is usable (CUDA is opt-in in HyperFrames, hence the env), else
+ * on the CPU. A CUDA failure falls back to the CPU: the matte is the slowest step, not one to lose to a driver.
+ * Not in the matte cache key on purpose: the model is the same, only float rounding may differ between providers.
+ */
+async function removeBackground(args: string[]): Promise<void> {
+  const plan = planGpu(await detectGpu(), gpuMode());
+  try {
+    await hyperframes(["remove-background", ...args, "--device", plan.matte.device], { env: plan.matte.env });
+  } catch (e) {
+    if (plan.matte.device !== "cuda") throw e;
+    await hyperframes(["remove-background", ...args, "--device", "cpu"]);
+  }
+}

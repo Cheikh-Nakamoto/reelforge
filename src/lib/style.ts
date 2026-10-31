@@ -134,6 +134,19 @@ export const StyleSchema = z.object({
     minGap: z.number().default(8),
     /** Background: an animated gradient from the style colours, or near-black. */
     background: z.enum(["gradient", "dark"]).default("gradient"),
+    /**
+     * 3D transition between the picture and a scene: "portal" (inverse zoom-through, no 3D budget), "cube" (turn on the
+     * vertical axis) or "flip" (on the horizontal one). Each scene that turns spends one of `camera.max`'s 3D effects,
+     * at most two scenes.
+     */
+    transition: z.enum(["portal", "cube", "flip"]).default("portal"),
+  }).prefault({}),
+  camera: z.object({
+    /**
+     * 3D camera rig around scenes, phones and graphics: at most this many camera moves per video (0 = off). The cap is
+     * the maintainer's budget of 3D effects per video, rig included (decision 23).
+     */
+    max: z.number().int().min(0).max(3).default(0),
   }).prefault({}),
   frame: z.object({
     /**

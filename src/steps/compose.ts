@@ -13,6 +13,8 @@ import type { Mask, Placement } from "./placement.js";
 import type { DeviceSlot } from "./stage.js";
 import { fxBakeFilter } from "./effects.js";
 import { seamLedger } from "./seams.js";
+import { planDevices } from "./browser.js";
+import { planTransitions, turning } from "./transitions.js";
 import { gradeCutout, gradeVideo, grainTexture, lookFilter } from "./look.js";
 
 function loadMatte(project: Project): MatteReport | null {
@@ -140,7 +142,7 @@ export async function applyCompose(
   const dirs = formats.map((f) => join(project.stepDir("compose"), f));
 
   await cached(project, "compose", {
-    code: codeOf(import.meta.url, "./beats.js", "./html.js", "./placement.js", "./look.js", "./effects.js", "./stage.js", "./contextual.js", "./seams.js"),
+    code: codeOf(import.meta.url, "./beats.js", "./html.js", "./placement.js", "./look.js", "./effects.js", "./stage.js", "./contextual.js", "./seams.js", "./browser.js", "./cards.js", "./rig.js", "./transitions.js", "../lib/nudge.js"),
     inputs: [cut, beatsPath],
     params: { formats, style, check: opts.check !== false },
     version: 6,
@@ -210,14 +212,30 @@ export async function applyCompose(
       // Screen recordings in a 3D phone: each screen part (its own cut video) and each B-roll under a bubble.
       const devices: DeviceSlot[] = [];
       if (style.frame.device) {
-        beats.parts.forEach((p, i) => {
-          if (p.kind !== "screen") return;
-          linkOrCopy(resolveBroll(p.name), join(assets, `part-${i}.mp4`));
-          devices.push({ src: `assets/part-${i}.mp4`, start: p.start, end: p.end, from: 0, role: "screen" });
-        });
-        beats.frames.forEach((fr, i) => {
-          if (fr.broll) devices.push({ src: `assets/broll-${i}.mp4`, start: fr.start, end: fr.end, from: fr.broll.from, role: "broll" });
-        });
+        const shape = async (file: string) => {
+          const p = await ffprobe(file);
+          // A rotated phone recording reports its stored size: swap to the displayed one.
+          return p.rotation % 180 === 90 ? p.height / p.width : p.width / p.height;
+        };
+        for (const [i, p] of beats.parts.entries()) {
+          if (p.kind !== "screen") continue;
+          const file = resolveBroll(p.name);
+          linkOrCopy(file, join(assets, `part-${i}.mp4`));
+          devices.push({ src: `assets/part-${i}.mp4`, start: p.start, end: p.end, from: 0, role: "screen", aspect: await shape(file) });
+        }
+        for (const [i, fr] of beats.frames.entries()) {
+          if (fr.broll) devices.push({ src: `assets/broll-${i}.mp4`, start: fr.start, end: fr.end, from: fr.broll.from, role: "broll", aspect: await shape(resolveBroll(fr.broll.src)) });
+        }
+        // Phone or browser (browser.ts): the recording's shape and what is said over it, then the editor's override;
+        // a browser spends one of the 3 3D effects, after the scenes that turn.
+        const said = (d: DeviceSlot) => beats.captions.filter((c) => c.end > d.start && c.start < d.end).flatMap((c) => c.words.map((w) => w.text)).join(" ");
+        const pick = planDevices(
+          devices.map((d) => ({ role: d.role, start: d.start, end: d.end, aspect: d.aspect ?? 0.46, text: said(d) })),
+          beats.devices ?? [],
+          3 - turning(planTransitions(beats.scenes, { fx: beats.fx, behind: beats.behind, duration: beats.duration }, style.camera.max).kinds),
+        );
+        devices.forEach((d, i) => (d.kind = pick.kinds[i]));
+        for (const n of pick.notes) if (!cutout.notes.includes(n)) cutout.notes.push(n);
       }
       if (subject && beats.fx.some((f) => f.kind === "colorPop")) await blackAndWhite(footage, join(assets, "bw.mp4"));
       writeJson(join(dir, "hyperframes.json"), { paths: { blocks: "compositions", components: "compositions/components", assets: "assets" }, media: { autoProxy: true } });
@@ -248,7 +266,7 @@ export async function applyCompose(
       for (const b of beats.behind) if (!bad.includes(b.id) && !comp.dropped.includes(b.id)) keptBehind.add(b.id);
       writeFileSync(join(dir, "index.html"), comp.html);
       // The vector ledger of the seams studio writes, for seam-gate in QA (motion-doctrine's Seam Gate).
-      writeJson(join(dir, "ledger.json"), seamLedger(beats, 30));
+      writeJson(join(dir, "ledger.json"), seamLedger({ scenes: comp.scenes, duration: beats.duration }, 30));
       results.push(opts.check === false ? skipped(fid, dir) : await lintAndCheck(fid, dir, src.duration));
     }
     const gone = beats.behind.filter((b) => !keptBehind.has(b.id));

@@ -86,6 +86,55 @@ the user can select (`/mcp__studio__demo-produit`, `/mcp__studio__questionnaire`
      the cut), not a few frames later; keep 0.3–0.75 s of stillness before a payoff (a behind-word, a stage scene,
      a counter's last value), so move or delete an effect that fills it; a graphic leaves once its job is done
      (shorten its `end` when it only sits there);
+   - `camera` (the 3D **rig**: `orbit`, `crane`, `dolly`, `truck`, each with `at`, `duration`, `target`, `reason`): a
+     move of a perspective wrapper around one scene (`sc<i>`), graphic (`mg<i>`) or phone (`dv<i>`), numbered by
+     position in its list. Default: an orbit on a typography scene, a dolly forward on a phone and on a hook,
+     comparison, definition or question; at most 3 per video, rig included in the budget of 3D effects. Keep the
+     ones that land on a peak, delete one on a calm sentence. One move per target, inside its calm part (a scene:
+     0.5 s after its start to 0.25 s before its end; a phone: 0.8 s and 0.45 s; a graphic: 0.5 s and 0.4 s):
+     compose drops the others and writes why in the notes. A phone with a move gives up its own slow turn. Never
+     aimed at the rush, which keeps `.cam`, `.push`, `.shake` and `.drift`. `crane` is the reserved upward vector,
+     `truck` and `orbit` follow the film's current (left), `dolly` is a push (Z forward);
+   - `scenes[].transition` (`portal`, `cube`, `flip`): how the picture hands over to a typography scene and back.
+     `portal` (default, absent field) is the inverse zoom-through. `cube` (vertical axis, to the left) and `flip`
+     (horizontal axis, upward) turn the rush and the scene as two faces of one solid, joined by a hard cut in
+     mid-turn (0.3 s out, 0.45 s in), the rush hidden while the scene is on. Default from the style
+     (`scenes.transition`): the first two scenes that fit, one kind per film (repeat it, do not mix); each scene that
+     turns spends one of the 3 3D effects, so the rig gets what is left and skips that scene. Keep it on a scene
+     that lands a punchline, set `portal` on one that follows a busy stretch. Compose drops a turn (and says why in
+     the notes) when the budget is spent, when the rush has no room (scene within 0.35 s of the start, within 0.5 s
+     of the end), when a shake, zoom punch, whip or ladder or a behind-word plays under the turn, and two scenes
+     that touch turn as one. Assembly junctions are not concerned: they stay FFmpeg xfades (see ticket 0013);
+   - `spaces` (the 3D **card space**: UI cards "exploded" in depth, with one camera travelling from card to card): each
+     `{ id, start, end, cards: [{ id, kind, text, items?, value?, suffix?, label?, at? }], reason? }` is one sequence of
+     2 to 6 cards, same kinds and fields as `mographs`. Default: three to five neighbouring graphics (counter, list,
+     definition, compare, callout, question, badge, url; at most 7 s between two, 16 s in all) staged together, each
+     card landing on its graphic's word (`at`), taken out of the loose `mographs`; one per video, a 3D effect of the
+     budget of 3. The cards sit at distinct depths, the farther ones more blurred (depth of field, on a wrapper); the
+     camera arrives on the first, creeps forward while it is read, then travels to the next on the nudge curve, in one
+     direction on each axis (Z forward, left, never back); the card it leaves flies on and fades, the rest leave
+     together in the current. Review: keep it where the speech lists or builds up (figures, a definition, a
+     comparison), put each `at` on the word that names the card (the stops are then 1 s apart at least, 0.4 s of
+     reading on the last), delete it on a calm sentence; the rush plays underneath, so check the face is not hidden
+     for long (shorten the window or add a `frames` card). No model crops interface elements (decision 2), so a card
+     is a graphic, not a cut-out of a recording. Compose drops a sequence (and says why in the notes) that overlaps a
+     scene, a behind-word, a loose graphic, a phone or browser or another sequence, that is too short for its cards,
+     or past the budget; the rig then gets what is left;
+   - `devices` and `hovers` (the 3D **browser**): a screen recording shows in a phone or in a desktop window in
+     perspective. Default: a landscape (or square) recording takes the browser, a portrait one keeps the phone; set
+     `devices: [{ id, target: "dv<i>", kind: "phone" | "browser", url? }]` to force one (`dv<i>` numbers the screen
+     parts, then the B-roll under a bubble). A browser is a 3D effect of the budget of 3 (after the turning scenes,
+     before the rig, which skips it): compose gives the phone back, with a note, when the budget is spent. The
+     recording is the page; it scrolls on the nudge curve, by default once through the calm part of the window.
+     A **hover frame** points at something the viewer must see: `hovers: [{ id, target, at, duration, x, y, w, h,
+     label? }]`, positions of the page from 0 to 1 (`x`, `y` top-left corner). No model finds interface elements, so
+     you place them by looking at the recording. To place one: pull a frame of the recording at the instant the
+     speaker names the element (`ffmpeg -ss <t> -i <recording> -frames:v 1 f.png`), look at it, read the element's
+     box as fractions of the picture (left edge / width, top edge / height), leave a margin of about 1 % around it, and
+     set `at` on the word that names it (the page scrolls to the frame first and arrives as it appears). One frame at a
+     time, 0.4 s at least, outside the window's entry and exit (0.8 s after its start, 0.45 s before its end); compose
+     drops the others and says why in the notes. After composing, check a rendered frame: the frame must sit on the
+     element, not beside it;
    - `notes`: unstable matte windows are reported there. **Never** put a behind-word back on a range the notes
      flag as unstable; tell the user the shot is too fast or the background too busy instead.
    Correct with `studio_beats { action: "set", beats }` (send the whole object back).
@@ -126,7 +175,7 @@ transitions: [smoothleft] # every junction rides one direction
 Transitions follow `motion-doctrine`: one *current* and 2–3 kinds repeated. Set `transitions` in every spec (the
 default cycle mixes three directions): `smoothleft` for an ordinary junction, `zoomin` only where the next part goes
 deeper into the same thought, `cut` for a hard cut. Every junction carries motion across the cut, so the fades
-(`fade`, `fadeblack`, `fadewhite`, `dissolve`) stay out.
+(`fade`, `fadeblack`, `fadewhite`, `fadegrays`, `fadefast`, `fadeslow`, `dissolve`) are refused by the schema.
 
 Order the parts by what is said ("comme je l'expliquais tantôt" comes after the demo). Each part's cut plan must be
 reviewed (`studio_cut_review` / `studio_cut_apply` on that part) before the assembly is built; then continue with

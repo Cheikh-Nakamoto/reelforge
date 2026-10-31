@@ -4,6 +4,11 @@ import type { MatteReport } from "./matte.js";
 import { placeBehind, type Mask, type Placement } from "./placement.js";
 import { CHAR_EM, esc, extrude, r1, r3 } from "../lib/markup.js";
 import { buildCaptions, captionZone } from "./captions.js";
+import { planRig, rigBaseline, rigTween } from "./rig.js";
+import { IN_T, OUT_T, planTransitions, poseProps, seamMotion, seamPerspective, turning } from "./transitions.js";
+import { NUDGE } from "../lib/nudge.js";
+import { planHovers } from "./browser.js";
+import { buildSpaces, planSpaces, spaceCss } from "./cards.js";
 import { buildDevices, buildScenes, RUSH, sceneSeams, type DeviceSlot } from "./stage.js";
 import { behindFxClashes } from "./effects.js";
 
@@ -91,6 +96,8 @@ const SEAM_Z = 0.04;
 export function buildComposition(input: HtmlInput): {
   html: string;
   placements: Record<string, Placement>;
+  /** The scenes as composed, with the transition each really got (the seam ledger reads these, not the raw beats). */
+  scenes: Beats["scenes"];
   /** What the composition changed in the beats it was given (for QA and the reviewing agent). */
   notes: string[];
   /** Behind-words left out of the composition (by id). */
@@ -118,10 +125,13 @@ export function buildComposition(input: HtmlInput): {
         `(${fr.start.toFixed(2)}–${fr.end.toFixed(2)} s), qui bougerait le sujet sous le mot. Déplace l'un des deux dans beats.json.`);
     return { ...rest, notes: [...notes, ...rest.notes], dropped: [...gone.map((b) => b.id), ...rest.dropped] };
   }
-  const { beats, style, format: f, src, matte, hasCutout, masks, devices = [] } = input;
+  const { style, format: f, src, matte, hasCutout, masks, devices = [] } = input;
+  // 3D transitions the composition can honour (hand edits come through beats.json): the scene list from here on.
+  const tplan = planTransitions(input.beats.scenes, { fx: input.beats.fx, behind: input.beats.behind, duration: r3(input.beats.duration) }, style.camera.max);
+  const beats: Beats = { ...input.beats, scenes: input.beats.scenes.map((s, i) => ({ ...s, transition: tplan.kinds[i] })) };
   const placements: Record<string, Placement> = {};
   const clashes = behindFxClashes(beats);
-  const notes = clashes.map((c) => c.note);
+  const notes = [...clashes.map((c) => c.note), ...tplan.notes];
   // After Effects-style motion blur (templates/vendor/motion-blur.js) on the elements that move fast.
   const blur = style.motion.blur ? ` data-hf-motion-blur='{"samplesPerFrame":8}'` : "";
   const W = f.width, H = f.height, D = r3(beats.duration);
@@ -150,10 +160,16 @@ export function buildComposition(input: HtmlInput): {
   // side, a take boundary would reframe the rush against that sign (a .cam set to the tight framing reads as a
   // push): it moves to the scene's edge, the frame where the picture cuts anyway.
   const seamRows = sceneSeams(beats.scenes, D);
-  const intoScene = seamRows.filter((r) => r.exit.selector === RUSH && r.exit.dir < 0).map((r) => r.cut);
-  const outOfScene = seamRows.filter((r) => r.entry.selector === RUSH && r.entry.dir < 0).map((r) => r.cut);
+  // The Z seams pull the rush (drift below); a turning seam (cube, flip) leaves its scale alone and owns a longer
+  // window: the rush is turning for OUT_T before the cut and IN_T after it.
+  const zRows = seamRows.filter((r) => r.exit.axis === "z" || r.entry.axis === "z");
+  const intoScene = zRows.filter((r) => r.exit.selector === RUSH && r.exit.dir < 0).map((r) => r.cut);
+  const outOfScene = zRows.filter((r) => r.entry.selector === RUSH && r.entry.dir < 0).map((r) => r.cut);
+  const intoTurn = seamRows.filter((r) => r.exit.selector === RUSH && r.exit.axis !== "z").map((r) => r.cut);
+  const outOfTurn = seamRows.filter((r) => r.entry.selector === RUSH && r.entry.axis !== "z").map((r) => r.cut);
   const camCuts = beats.cuts.map((c) =>
-    intoScene.find((s) => c > s - SEAM_WINDOW && c < s) ?? outOfScene.find((e) => c > e && c <= e + SEAM_WINDOW) ?? c);
+    intoScene.find((s) => c > s - SEAM_WINDOW && c < s) ?? outOfScene.find((e) => c > e && c <= e + SEAM_WINDOW) ??
+    intoTurn.find((s) => c > s - OUT_T && c < s) ?? outOfTurn.find((e) => c > e && c <= e + IN_T) ?? c);
 
   // Framing scale of the jump-cut zoom at time t (same rule as the timeline below).
   const jumpSteps: { at: number; scale: number }[] = [];
@@ -308,8 +324,57 @@ export function buildComposition(input: HtmlInput): {
 
   // ---------- frame reductions: both stacks shrink into a card (room for graphics) or a corner bubble (over B-roll)
   const { stageHtml, brollHtml } = buildFrames(beats.frames, style, W, H, D, unit, t, devices.some((d) => d.role === "broll"));
-  const dev = buildDevices(devices, style, W, H, t);
-  const scenes = buildScenes(beats.scenes, style, W, H, blur, t);
+  // ---------- 3D camera rig: only the moves the composition can honour; the rush's camera levels are never touched
+  const turns = new Set(tplan.kinds.flatMap((k, i) => (k === "portal" ? [] : [`sc${i}`])));
+  // A browser is a 3D effect of its own: it spends the budget before the rig and takes no rig move.
+  const browsers = devices.flatMap((d, i) => (d.kind === "browser" ? [{ target: `dv${i}`, start: d.start, end: d.end }] : []));
+  const hoverPlan = planHovers(beats.hovers ?? [], browsers);
+  notes.push(...hoverPlan.notes);
+  for (const b of browsers) turns.add(b.target);
+  const spacePlan = planSpaces(beats.spaces ?? [], {
+    scenes: beats.scenes, mographs: beats.mographs, behind: beats.behind,
+    windows: devices.map((d, i) => ({ target: `dv${i}`, start: d.start, end: d.end })),
+  }, 3 - turning(tplan.kinds) - browsers.length);
+  notes.push(...spacePlan.notes);
+  const rigPlan = planRig(beats.camera ?? [], {
+    scenes: beats.scenes.map((s, i) => ({ ...s, id: `sc${i}` })),
+    mographs: beats.mographs.map((m, i) => ({ ...m, id: `mg${i}` })),
+    devices: devices.map((d, i) => ({ target: `dv${i}`, start: d.start, end: d.end })),
+  }, 3 - turning(tplan.kinds) - browsers.length - spacePlan.kept.length, turns);
+  notes.push(...rigPlan.notes);
+  // Element ids are positional (`sc0`, `mg0`, `dv0`): a move's target is the id of the element it wraps.
+  const rigOf = (prefix: string) => new Set(rigPlan.kept.filter((c) => c.target.startsWith(prefix)).map((c) => Number(c.target.slice(prefix.length))));
+  const rigged = { sc: rigOf("sc"), mg: rigOf("mg"), dv: rigOf("dv") };
+  for (const c of rigPlan.kept) {
+    const sel = `#${c.target} .rigcam`;
+    t(`tl.set("${sel}", { ${rigBaseline(c.move)} }, ${r3(c.at)});`);
+    t(rigTween(sel, c, unit, W));
+  }
+  const dev = buildDevices(devices.map((d, i) => ({ ...d, url: d.url ?? beats.devices?.find((o) => o.target === `dv${i}`)?.url })), style, W, H, t, rigged.dv, hoverPlan.kept);
+  const scenes = buildScenes(beats.scenes, style, W, H, blur, t, rigged.sc);
+  const spacesHtml = buildSpaces(spacePlan.kept, W, H, unit, t);
+  // ---------- 3D transitions, rush side: the rush is one face of the solid (both stacks turn together on .shake, the
+  // level the camera effects already share) and is hidden while the scene is on, so one side shows at a time.
+  const turning3d = tplan.kinds.some((k) => k !== "portal");
+  if (turning3d) t(`tl.set(".shake", { rotationX: 0, rotationY: 0 }, 0);`);
+  beats.scenes.forEach((sc, i) => {
+    const kind = tplan.kinds[i];
+    if (kind === "portal") return;
+    const prev = beats.scenes[i - 1];
+    const next = beats.scenes[i + 1];
+    const out = seamMotion(kind, "out", W, H), inn = seamMotion(kind, "in", W, H);
+    const rush = "#frame-cam, #frame-cut";
+    if (!(prev && sc.start - prev.end < 1 / 30)) {
+      t(`tl.set(".shake", { transformPerspective: ${seamPerspective(kind, W, H)} }, ${r3(sc.start - OUT_T)});`);
+      t(`tl.to(".shake", { ${poseProps(out.to)}, duration: ${OUT_T}, ease: "${out.ease}" }, ${r3(sc.start - OUT_T)});`);
+      t(`tl.set("${rush}", { opacity: 0 }, ${r3(sc.start)});`);
+    }
+    if (!(next && next.start - sc.end < 1 / 30)) {
+      t(`tl.set("${rush}", { opacity: 1 }, ${r3(sc.end)});`);
+      t(`tl.set(".shake", { transformPerspective: ${seamPerspective(kind, W, H)}, ${poseProps(inn.from)} }, ${r3(sc.end)});`);
+      t(`tl.to(".shake", { ${poseProps(inn.to)}, duration: ${IN_T}, ease: "${inn.ease}" }, ${r3(sc.end)});`);
+    }
+  });
 
   // ---------- effects (CapCut-style: transforms on both stacks and overlays, so the cutout stays registered)
   const colorPop = hasCutout && beats.fx.some((f) => f.kind === "colorPop");
@@ -405,10 +470,13 @@ export function buildComposition(input: HtmlInput): {
       inner = `<div class="${cls}">${chip}<span>${esc(m.text.toUpperCase())}</span></div>`;
       enter(`#${id} .pill`, m.start, vertical ? 0 : 1);
     }
-    t(`tl.to("#${id} > div", { x: -${exitX}, duration: 0.34, ease: "power4.in" }, ${r3(m.end - 0.34)});`);
-    t(`tl.to("#${id} > div", { opacity: 0, duration: 0.18, ease: "none" }, ${r3(m.end - 0.2)});`);
+    // A graphic under a rig sits one level deeper: its exit targets the graphic itself, not the rig around it.
+    const mgSel = rigged.mg.has(i) ? `#${id} .mg-pos` : `#${id} > div`;
+    t(`tl.to("${mgSel}", { x: -${exitX}, duration: 0.34, ease: "power4.in" }, ${r3(m.end - 0.34)});`);
+    t(`tl.to("${mgSel}", { opacity: 0, duration: 0.18, ease: "none" }, ${r3(m.end - 0.2)});`);
+    const pos = `<div class="mg-pos"${blur} style="left:${align === "center" ? 0 : mgX}px;top:${mgY}px;${align === "center" ? `width:${W}px;` : ""}text-align:${align}">${inner}</div>`;
     return `    <div id="${id}" class="clip mg" data-start="${s}" data-duration="${dur}" data-track-index="3" style="z-index:5">
-      <div class="mg-pos"${blur} style="left:${align === "center" ? 0 : mgX}px;top:${mgY}px;${align === "center" ? `width:${W}px;` : ""}text-align:${align}">${inner}</div>
+      ${rigged.mg.has(i) ? `<div class="rig"><div class="rigcam">${pos}</div></div>` : pos}
     </div>`;
   }).join("\n");
 
@@ -463,6 +531,8 @@ ${beats.captions.some((g) => g.emoji) ? `      @font-face { font-family: "Noto C
         font-family: "${behindFont}"; font-weight: ${style.fonts.behindWeight}; color: ${c.behind}; letter-spacing: 0.02em;
         ${depth >= 0.5 ? `text-shadow: ${extrude("rgba(0,0,0,0.55)", Math.round(10 * unit * depth))};` : ""} }
       .mg-pos { position: absolute; }
+${spacePlan.kept.length ? spaceCss(style, unit) + "\n" : ""}${rigPlan.kept.length ? `      .rig { position: absolute; inset: 0; perspective: ${Math.round(1800 * unit)}px; }
+      .rigcam { position: absolute; inset: 0; transform-style: preserve-3d; }` : ""}
       .panel { display: inline-block; padding: ${Math.round(18 * unit)}px ${Math.round(34 * unit)}px; border-radius: ${Math.round(22 * unit)}px;
         background: ${c.panel}; color: ${c.text}; font-family: "${style.fonts.graphic}"; }
       .panel.plain { background: transparent; padding: 0; }
@@ -521,6 +591,7 @@ ${grainLayer(style)}${hasCutout ? `    <div id="frame-cut" class="frame"><div id
       </div>
     </div></div></div></div></div>\n` : ""}${dev.html}${fxHtml}${letterbox(style, W, H)}
 ${mgHtml}
+${spacesHtml}
 ${scenes.html}
     <div id="captions" class="clip" data-start="0" data-duration="${D}" data-track-index="5" data-track-kind="captions">
 ${caps.html}
@@ -540,16 +611,8 @@ ${tlLines.join("\n")}
   </body>
 </html>
 `;
-  return { html, placements, notes, dropped: [] };
+  return { html, placements, scenes: beats.scenes, notes, dropped: [] };
 }
-
-// cut-the-curve §7: a single ease (power3.inOut) smacks the group to a stop; a ramp-in, a linear burst and a tail
-// at least three times the ramp-in read as a purposeful slide. Fractions are of the distance and of the time.
-const NUDGE = [
-  { to: 0.1, time: 0.2, ease: "power3.in" },
-  { to: 0.75, time: 0.18, ease: "none" },
-  { to: 1, time: 0.62, ease: "power4.out" },
-] as const;
 
 type FramePose = { x: number; y: number; scale: number };
 

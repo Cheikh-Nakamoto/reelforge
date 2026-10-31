@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { hyperframes, run } from "./lib/exec.js";
+import { describeGpu, detectGpu, gpuMode } from "./lib/gpu.js";
 import { listStyles, STYLES_DIR } from "./lib/style.js";
 
 export interface Check {
@@ -57,6 +58,14 @@ export async function doctor(): Promise<Check[]> {
     ok: !!chrome,
     detail: chrome?.[1].trim() ?? "not found",
     fix: "npx hyperframes browser ensure (or set HYPERFRAMES_BROWSER_PATH)",
+  });
+
+  const gpu = await detectGpu();
+  checks.push({
+    name: "GPU (optional)",
+    ok: !!gpu && gpu.apis.length > 0,
+    detail: describeGpu(gpu, gpuMode()),
+    fix: "none needed: the CPU path is used. STUDIO_GPU=off|auto|on sets the behaviour (NVIDIA CUDA also needs onnxruntime's CUDA libraries)",
   });
 
   const sfx = join(dirname(STYLES_DIR), "assets", "sfx");

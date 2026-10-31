@@ -132,6 +132,23 @@ films/<name>/           hand-made films with no rush (music only): setup, storyb
    subagent and grows by one summary per ticket, and `claude -p` per ticket is the headless form. A review gate is a
    checkpoint ticket: a subagent prepares it, the driver asks the user and waits (subagents cannot ask), a second
    subagent applies the answer. `loop.md` is versioned, being a process; the tickets stay local.
+23. **3D pack: CSS first, Three.js only for the product** (the maintainer's call, 2026-10-31). UI, website and product
+   scenes come from screen recordings (`kind: screen`), never PNG captures, local sites or remote URLs (decision 17);
+   the Apple-style "product" is the app in the 3D phone, so no 3D-model licence is involved. CSS 3D by default (sharp
+   text, easy video, deterministic seek); Three.js for the product only, once a prototype proves deterministic seek in
+   HyperFrames 0.8.188. At most 3 3D effects per video, on the strong beats the contextual graphics already pick
+   (decision 10); anything more is set by hand in `beats.json` (decision 2). Footage parallax (ticket 0012) is worth
+   its extra matte time (decision 21).
+23. **A GPU is used when it exists, never required** (the maintainer's call, 2026-10-31). `lib/gpu.ts` probes locally
+   (`nvidia-smi`, `lspci`, `/dev/dri`, `ffmpeg -encoders`; decision 17) and `planGpu` is pure. What HyperFrames 0.8.188
+   really accelerates: the matte through ONNX `--device cuda` (opt-in via `HYPERFRAMES_CUDA=1`, NVIDIA only; CoreML is
+   automatic on Apple Silicon), `render --gpu` (hardware H.264: NVENC, VAAPI, QSV, AMF, VideoToolbox), and Chrome
+   WebGL (`--browser-gpu`, default is a probe with SwiftShader fallback). Not accelerated: parakeet/whisper, FFmpeg
+   filters (look, xfade, loudnorm), GSAP/CSS capture. `STUDIO_GPU=auto|off|on`: `auto` with no GPU is the historical
+   command line; `off` forces CPU; `on` also forces hardware GL and does not fall back. A failing GPU render or CUDA
+   matte falls back to the CPU in `auto`. Cache: the picture key and render params include the GPU flags only when
+   hardware is used (encoder and GL change the bitstream); the matte key does not (same model, float rounding only,
+   unmeasured). `receipt.json` carries a `gpu` block; `studio_doctor` prints it. Decisions 5 and 20 stand on CPU.
 
 ## HyperFrames contract (the parts that bit us)
 
