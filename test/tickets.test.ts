@@ -45,10 +45,11 @@ test("a ticket with no dependency writes the dash", () => {
   assert.doesNotMatch(renderTicket(t), /checkpoint/);
 });
 
+// The tickets are local (gitignored, only loop.md is versioned): on a fresh clone or in CI there are none to read.
 const devDir = join(ROOT, ".scratch", "tickets");
-test("every development ticket of .scratch/tickets reads and writes back unchanged", { skip: !existsSync(devDir) }, () => {
-  const files = readdirSync(devDir).filter((f) => /^\d{4}-.+\.md$/.test(f));
-  assert.ok(files.length > 0);
+const devFiles = existsSync(devDir) ? readdirSync(devDir).filter((f) => /^\d{4}-.+\.md$/.test(f)) : [];
+test("every development ticket of .scratch/tickets reads and writes back unchanged", { skip: devFiles.length === 0 }, () => {
+  const files = devFiles;
   for (const f of files) {
     const md = readFileSync(join(devDir, f), "utf8");
     const t = parseTicket(md);
